@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Clone</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <div class="user-id-display">ID: <span id="my-id">...</span></div>
+                <input type="text" id="search-input" placeholder="ID orqali qidirish...">
+            </header>
+            <div class="chat-list" id="chat-list">
+                <!-- <div class="chat-item active">
+                    <div class="avatar">U</div>
+                    <div class="chat-info">
+                        <h4>Umumiy Guruh</h4>
+                        <p>Oxirgi xabar...</p>
+                    </div>
+                </div> -->
+                <div class="chat-item">
+                    <div class="avatar">U</div>
+                    <div class="chat-info">
+                        <h4>Muhammad</h4>
+                        <p>Oxirgi xabar...</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-chat">
+            <header class="chat-header">
+                <button id="back-btn" class="mobile-only">←</button>
+                <div class="chat-user-info">
+                    <h3 id="current-chat-name">Umumiy Guruh</h3>
+                    <p id="status">online</p>
+                </div>
+            </header>
+
+            <div class="messages-container" id="messages">
+                <!-- <div class="message received">
+                    <p>Salom! Loyihani boshladikmni?</p>
+                    <span class="time">12:00</span>
+                </div>
+                <div class="message sent">
+                    <p>Ha, albatta</p>
+                    <span class="time">12:01</span>
+                </div> -->
+            </div>
+            <footer class="input-area">
+                <input type="text" id="msg-input" placeholder="Xabar yozing...">
+                <button id="send-btn">Yuborish</button>
+            </footer>
+        </main>
+    </div>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

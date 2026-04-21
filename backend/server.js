@@ -1,6 +1,6 @@
 const express = require("express")
 const http = require("http")
-const { Server} = require("socket.io")
+const { Server } = require("socket.io")
 const mongoose = require("mongoose")
 const cors = require("cors")
 const Message = require("./models/Message")
@@ -13,14 +13,14 @@ app.use(express.json())
 
 const server = http.createServer(app)
 const io = new Server(server, {
-    cors:{
+    cors: {
         origin: "*", // Capacitor ilovasi uchun hamma joydan ruxsat beramiz
         methods: ["GET", "POST"]
     }
 })
 
 
-app.get('/api/messages/:from/:to', async(req, res)=>{
+app.get('/api/messages/:from/:to', async (req, res) => {
     const { from, to } = req.params
     // Ikkala tomon o'rtasidagi barcha xabarlarni topish
     const history = await Message.find({
@@ -33,45 +33,68 @@ app.get('/api/messages/:from/:to', async(req, res)=>{
     res.json(history)
 })
 
-app.get('/api/chat-list/:myId', async(req, res)=>{
+app.get('/api/chat-list/:myId', async (req, res) => {
     const { myId } = req.params
     try {
-        // Siz yuborgan yoki sizga kelgan barcha xabarlarni topamiz
+        // 1. Shu foydalanuvchiga tegishli barcha xabarlarni eng yangisidan boshlab topamiz
         const messages = await Message.find({
             $or: [{ from: myId }, { to: myId }]
-        }).sort({ time: -1 })
+        }).sort({ time: -1 }) // -1 eng yangilari birinchi keladi degani
 
-        // Noyob foydalanuvchi ID-larini ajratib olamiz
-        const contactIds = new Set()
-        messages.forEach(m=>{
-            if(m.from !== myId) contactIds.add(m.from)
-            if(m.to !== myId) contactIds.add(m.to)
-        })
+        const chatList = [];
+        const processedUsers = new Set();
 
-        // O'sha foydalanuvchilarning ma'lumotlarini (status, username) bazadan olamiz
-        const contacts = await User.find({customId: { $in: Array.from(contactIds)}})
-        res.json(contacts)
+        // 2. Xabarlarni aylanib chiqib, har bir yangi kontakt uchun faqat 1-chi (eng so'nggi) xabarni olib qolamiz
+        for (let msg of messages) {
+            const partnerId = msg.from === myId ? msg.to : msg.from;
+
+            if (!processedUsers.has(partnerId)) {
+                processedUsers.add(partnerId);
+
+                // Sherikning statusini bazadan olamiz
+                const partner = await User.findOne({ customId: partnerId });
+
+                chatList.push({
+                    customId: partnerId,
+                    status: partner ? partner.status : 'offline',
+                    lastSeen: partner ? partner.lastSeen : null,
+                    lastMessage: msg.text, // Mana shu oxirgi xabar
+                    lastMessageTime: msg.time
+                });
+            }
+        }
+        res.json(chatList);
     } catch (error) {
-        res.status(500).json({error: "Ro'yxatni yuklashda xatolik"})
+        res.status(500).json({ error: "Ro'yxatni yuklashda xatolik" })
     }
 })
 
+// Foydalanuvchining joriy statusini olish uchun API
+app.get('/api/user-status/:id', async (req, res) => {
+    try {
+        const user = await User.findOne({ customId: req.params.id });
+        res.json({ status: user ? user.status : 'offline' });
+    } catch (error) {
+        res.status(500).json({ status: 'offline' });
+    }
+});
+
 // MongoDB ulanishi (Hozircha test uchun local yoki Atlas)
 mongoose.connect(process.env.MONGO_URI)
-    .then(()=> console.log("MongoDb-ga muvaffaqiyatli ulandik!"))
-    .catch(err=> console.error("Xatolik:", err))
+    .then(() => console.log("MongoDb-ga muvaffaqiyatli ulandik!"))
+    .catch(err => console.error("Xatolik:", err))
 
-function generateZangiId(){
+function generateZangiId() {
     return 'Z-' + Math.floor(100000 + Math.random() * 900000)// Masalan: Z-542189
 }
 
 // Socket.io mantiqi
-io.on("connection",(socket)=>{
+io.on("connection", (socket) => {
     // 1. Foydalanuvchi ulanganda (Hali kimligini bilmaymiz, faqat socket.id bor)
     console.log("Socket ulandi:", socket.id)
 
     // Foydalanuvchi tizimga kirganda uni ma'lum bir xonaga (room) qo'shamiz
-    socket.on("join_chat",async(userId)=>{
+    socket.on("join_chat", async (userId) => {
         socket.join(userId)
 
         // Socket obyektiga userId-ni biriktirib qo'yamiz,
@@ -86,27 +109,35 @@ io.on("connection",(socket)=>{
         io.emit("user_status_changed", { userId: userId, status: "online" });
 
         // Bazada bor-yo'qligini tekshirish
-        let user = await User.findOne({ customId: userId})
-        if(!user){
-            user = new User({ customId:userId, username: "Yangi foydalanuvchi"})
+        let user = await User.findOne({ customId: userId })
+        if (!user) {
+            user = new User({ customId: userId, username: "Yangi foydalanuvchi" })
             await user.save()
             console.log("Yangi foydalanuvchi bazaga qo'shildi:", userId)
         }
     })
 
     // Xabar yuborish
-    socket.on("send_message",async(data)=>{
+    socket.on("send_message", async (data) => {
         try {
             // 1. Xabarni bazaga saqlash
             const newMessage = new Message({
                 from: data.from,
                 to: data.to,
-                text: data.msg
+                text: data.msg,
+                time: new Date()
             })
             await newMessage.save()
 
-            // 2. Qabul qiluvchiga yuborish
-            io.to(data.to).emit("receive_message", data)
+            
+
+            // Qabul qiluvchiga xabar bilan birga yuboruvchining statusini ham beramiz
+            io.to(data.to).emit("receive_message", {
+                from: data.from,
+                msg: data.msg,
+                time: newMessage.time,
+                status: 'online' // Statusni qo'shdik
+            });
 
             console.log("Xabar bazaga saqlandi!")
         } catch (error) {
@@ -115,30 +146,30 @@ io.on("connection",(socket)=>{
     })
 
     // 1. "Yozayapti..." holati
-    socket.on("typing",(data)=>{
+    socket.on("typing", (data) => {
         // data: { to: "Z-123", from: "Z-456" }
-        io.to(data.to).emit("user_typing", { from: data.from})
+        io.to(data.to).emit("user_typing", { from: data.from })
     })
 
     socket.on("stop_typing", (data) => {
-        io.to(data.to).emit("user_stop_typing", { from: data.from})
+        io.to(data.to).emit("user_stop_typing", { from: data.from })
     })
 
     // 2. Uzilganda vaqtni saqlash
-    socket.on("disconnect",async()=>{
-        if(socket.customId){
+    socket.on("disconnect", async () => {
+        if (socket.customId) {
             // Bazada statusni 'offline' qilish
             const now = Date.now();
-            await User.findOneAndUpdate({customId: socket.customId},{status:"offline", lastSeen: now})
+            await User.findOneAndUpdate({ customId: socket.customId }, { status: "offline", lastSeen: now })
             console.log(`${socket.customId} hozir offline`)
             // Boshqalarga bu foydalanuvchi offline bo'lganini bildirish (ixtiyoriy)
-            io.emit("user_status_changed",{ userId: socket.customId, status: "offline", lastSeen: now})
+            io.emit("user_status_changed", { userId: socket.customId, status: "offline", lastSeen: now })
         }
         console.log("Foydalanuvchi uzildi")
     })
 })
 
 const PORT = process.env.PORT || 3000
-server.listen(PORT, ()=>{
+server.listen(PORT, () => {
     console.log(`Server ${PORT}-portda ishlamoqda...`)
 })

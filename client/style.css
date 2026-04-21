@@ -57,6 +57,7 @@
 }
 
 .avatar {
+    position: relative; /* Indikatorni joylashtirish uchun */
     width: 45px;
     height: 45px;
     background: #ccc;
@@ -66,6 +67,22 @@
     align-items: center;
     justify-content: center;
 }
+
+/* Status nuqtasi */
+.status-dot {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid white; /* Fon bilan ajralib turishi uchun */
+    transition: background-color 0.3s ease;
+}
+
+/* Ranglar */
+.status-online { background-color: #4CAF50; } /* Yashil */
+.status-offline { background-color: #bbb; }   /* Kulrang */
 
 /* Main Chat Area */
 .main-chat {

@@ -12,6 +12,7 @@ const sendBtn = document.getElementById("send-btn")
 const searchInput = document.getElementById('search-input');
 
 let currentTargetId = ""; // Xabar yubormoqchi bo'lgan odamimizning ID-si
+let unreadMessages = {} // { "Z-123": 5 } ko'rinishida saqlaymiz
 
 // 1. Foydalanuvchi uchun vaqtinchalik ID yaratamiz (Zangi-style)
 // Keyinchalik buni bazadan olamiz
@@ -22,7 +23,7 @@ localStorage.setItem("myZangiId", myId)
 document.getElementById("my-id").innerText = myId
 
 // 2. Serverga ulanish va xonaga kirish
-socket.on("connect",()=>{
+socket.on("connect", () => {
     console.log("Serverga ulandik! ID:", socket.id)
 
     // Serverga "Men shu ID bilan kirdim" deb xabar beramiz
@@ -30,19 +31,14 @@ socket.on("connect",()=>{
 })
 
 // 3. Xabarlarni qabul qilish (Boshqa foydalanuvchidan kelgan)
-socket.on("receive_message",(data)=>{
+socket.on("receive_message", (data) => {
     // 1. FAQAT o'sha odam bilan chat ochiq bo'lsa xabarni ko'rsatamiz
-    if(currentTargetId === data.from){
-        displayMessage(data.msg, "received", data.from, new Date())
-    }else{
-        // Agar boshqa odamdan xabar kelsa, shunchaki sidebar-ni yangilaymiz (bildirishnoma sifatida)
-        console.log("Boshqa odamdan xabar keldi:", data.from)
-    }
+    if (currentTargetId === data.from) {
+        displayMessage(data.msg, "received", data.from, data.time)
+    } 
 
-    
-
-    // 3. Agar bu odam ro'yxatda bo'lmasa, sidebar-ga qo'shish (ixtiyoriy)
-    updateChatList(data.from, data.msg)
+    // Sidebar-ni yangilash (Xabar + Status bilan)
+    updateChatList(data.from, data.msg, 'online');
 })
 
 const statusLabel = document.getElementById("status");
@@ -62,32 +58,20 @@ socket.on("user_stop_typing", (data) => {
 });
 
 socket.on("user_status_changed", (data) => {
+    // AGAR BU O'ZIM BO'LSAM, TO'XTATISH
+    if (data.userId === myId) return;
+
     // 1. Tepada ochiq turgan chat statusini yangilash
     if (currentTargetId === data.userId) {
-        if (data.status === "online") {
-            statusLabel.innerText = "online";
-            statusLabel.style.color = "#2481cc"; // Ko'k rang online uchun
-        } else {
-            // Offline bo'lsa, qachon chiqqanini hisoblab yozamiz
-            statusLabel.innerText = formatLastSeen(data.lastSeen);
-            statusLabel.style.color = "#888"; // Kulrang offline uchun
-        }
+        const statusLabel = document.getElementById("status");
+        statusLabel.innerText = data.status === "online" ? "online" : "offline";
+        statusLabel.style.color = data.status === "online" ? "#2481cc" : "#888";
     }
 
-    // 2. Sidebar (chap taraf) dagi chat-item statusini yangilash
-    const sidebarItem = document.getElementById(`chat-${data.userId}`);
-    if (sidebarItem) {
-        const statusText = sidebarItem.querySelector("p");
-        if (data.status === "online") {
-            statusText.innerText = "online";
-            statusText.style.color = "#2481cc";
-        } else {
-            // Agar oxirgi xabar mavjud bo'lsa, status o'rniga xabar turaverishi kerak
-            // Lekin siz statusni ko'rsatmoqchi bo'lsangiz:
-            statusText.innerText = "offline"; 
-            statusText.style.color = "#888";
-        }
-    }
+    // SIDEBAR-ni yangilash (Xabarni o'zgartirmasdan, faqat statusni)
+    updateChatList(data.userId, null, data.status);
+
+    
 });
 
 // Inputga yozganda serverga bildirish
@@ -102,9 +86,9 @@ msgInput.addEventListener("input", () => {
 });
 
 // Xabarni ekranda ko'rsatish uchun alohida funksiya
-function displayMessage(text, type, senderId, msgTime = new Date()){
+function displayMessage(text, type, senderId, msgTime = new Date()) {
     const dateObj = new Date(msgTime) // Bazadagi vaqtni yoki hozirgi vaqtni oladi
-    const time = dateObj.getHours() + ":" + dateObj.getMinutes().toString().padStart(2,"0")
+    const time = dateObj.getHours() + ":" + dateObj.getMinutes().toString().padStart(2, "0")
 
     const messageHTML = `
         <div class="message ${type}">
@@ -118,52 +102,78 @@ function displayMessage(text, type, senderId, msgTime = new Date()){
     messagesContainer.scrollTop = messagesContainer.scrollHeight
 }
 
-let unreadMessages = {} // { "Z-123": 5 } ko'rinishida saqlaymiz
 
-function updateChatList(userId, lastMsg = "Yangi xabar..."){
+
+// Funksiya endi async bo'ldi
+function updateChatList(userId, lastMsg = null, status = null) {
+    // AGAR BU O'ZIM BO'LSAM, RO'YXATGA QO'SHMASLIK
+    if (userId === myId) return;
+
     const chatList = document.getElementById("chat-list")
     const existingItem = document.getElementById(`chat-${userId}`)
 
-    // Xabar sonini oshirish (agar chat ochiq bo'lmasa)
-    if (currentTargetId !== userId) {
+    // MUHIM O'ZGARIŞ: Agar bu yangi odam bo'lsa va hali xabar kelmagan bo'lsa (faqat status o'zgargan bo'lsa),
+    // uni ro'yxatga qo'shmaymiz.
+    if (!existingItem && lastMsg === null) {
+        return; 
+    }
+
+    // 1. Xabarlar sonini hisoblash (Faqat xabar kelgan bo'lsa)
+    if (lastMsg !== null && currentTargetId !== userId) {
         unreadMessages[userId] = (unreadMessages[userId] || 0) + 1;
+    } else if (currentTargetId === userId) {
+        unreadMessages[userId] = 0;
     }
 
     const count = unreadMessages[userId] || 0;
     const countHTML = count > 0 ? `<span class="unread-badge">${count}</span>` : "";
 
     // Agar bu odam ro'yxatda bo'lsa, uni shunchaki tepaga suramiz
-    if(existingItem){
-        // Oxirgi xabarni yangilash
-        existingItem.querySelector("p").innerText = lastMsg;
-        
+    if (existingItem) {
+        // Oxirgi xabarni yangilash (agar berilgan bo'lsa)
+        if (lastMsg) existingItem.querySelector("p").innerText = lastMsg;
+
+        // STATUSNI yangilash (Eng muhim joyi!)
+        if (status) {
+            const dot = existingItem.querySelector(".status-dot");
+            if (dot) {
+                dot.className = `status-dot status-${status}`;
+            }
+        }
+
         // Eski badgeni o'chirib, yangisini qo'shish
         const oldBadge = existingItem.querySelector(".unread-badge");
         if (oldBadge) oldBadge.remove();
-        
+
         if (count > 0) {
             existingItem.querySelector(".chat-info").insertAdjacentHTML('beforeend', countHTML);
         }
-        
         // Chatni ro'yxat boshiga chiqarish
         chatList.prepend(existingItem);
         return
     }
 
+
     // Agar ro'yxatda bo'lmasa, yangi yaratamiz
-    const chatItem = document.createElement("div")
-    chatItem.className = "chat-item"
-    chatItem.id = `chat-${userId}`
+    const initialStatus = status || 'offline';
+    const chatItem = document.createElement("div");
+    chatItem.className = "chat-item";
+    chatItem.id = `chat-${userId}`;
+
+    // HTML ichiga status-dot ni dinamik status bilan qo'shdik
     chatItem.innerHTML = `
-        <div class="avatar">${userId.charAt(2)}</div>
-        <div class="chat-info">
-            <h4>${userId}</h4>
-            <p>${lastMsg}</p>
-            ${countHTML}
+            <div class="avatar">
+                ${userId.charAt(2)}
+                <div class="status-dot status-${initialStatus}"></div>
             </div>
-            `
-            
-            
+            <div class="chat-info">
+                <h4>${userId}</h4>
+                <p>${lastMsg}</p>
+                ${countHTML}
+            </div>
+        `;
+
+
     // Chatga bosilganda o'sha odam bilan suhbatni ochish
     chatItem.addEventListener("click", () => handleChatClick(chatItem, userId));
     chatList.prepend(chatItem) // Eng tepaga qo'shish
@@ -173,14 +183,14 @@ function updateChatList(userId, lastMsg = "Yangi xabar..."){
 function handleChatClick(element, userId) {
     currentTargetId = userId;
     unreadMessages[userId] = 0; // Raqamni nolga tushirish
-    
+
     const badge = element.querySelector(".unread-badge");
     if (badge) badge.remove();
 
     document.getElementById("current-chat-name").innerText = "ID: " + userId;
     document.querySelectorAll(".chat-item").forEach(i => i.classList.remove("active"));
     element.classList.add("active");
-    
+
     loadChatHistory(userId);
 }
 
@@ -190,7 +200,7 @@ async function loadChatHistory(targetId) {
     const response = await fetch(`http://localhost:3000/api/messages/${myId}/${targetId}`)
     const messages = await response.json()
 
-    messages.forEach(m=>{
+    messages.forEach(m => {
         const type = (m.from === myId) ? 'sent' : 'received'
         displayMessage(m.text, type, m.from, m.time)
     })
@@ -201,83 +211,83 @@ async function loadChatHistory(targetId) {
 
 
 // Qidiruv maydoniga ID yozilganda
-searchInput.addEventListener("input",(e)=>{
+searchInput.addEventListener("input", (e) => {
     currentTargetId = e.target.value.trim()
     document.getElementById("current-chat-name").innerText = "ID: " + currentTargetId
 })
 
 // 2. Mobil versiyada orqaga qaytish
-backBtn.addEventListener("click",()=>{
+backBtn.addEventListener("click", () => {
     appContainer.classList.remove("chat-open")
 })
 
 // 3. Xabar yuborish funksiyasi
-function sendMessage(){
-    const text = msgInput.value.trim()
-    
-    // Agar qidiruvga hech narsa yozilmagan bo'lsa, ogohlantiramiz
-    if(!currentTargetId){
-        alert("Xabar yuborish uchun avval ID kiriting!")
-        return
-    }
+function sendMessage() {
+    const text = msgInput.value.trim();
+    if (!text || !currentTargetId) return;
 
-    if(text !== ""){
-        const messageData = {
-            to: currentTargetId, // Qidiruvdan olingan ID
-            from: myId,          // Sizning ID-ingiz
-            msg: text
-        }
+    const msgData = {
+        from: myId,
+        to: currentTargetId,
+        msg: text
+    };
 
-        // 1. Serverga yuborish
-        socket.emit("send_message",messageData)
+    socket.emit("send_message", msgData);
 
-        // 2. O'zimizning ekranda ko'rsatish
-        displayMessage(text,"sent")
+    displayMessage(text, "sent", myId, new Date());
 
-        msgInput.value = ""
-    }
+    // MANA SHU QATOR QO'SHILADI: Yuboruvchi o'zining chat ro'yxatini yangilashi uchun
+    updateChatList(currentTargetId, text, 'online');
+
+    msgInput.value = "";
 }
 
 // Tugmaga bosganda yuborish
 sendBtn.addEventListener("click", sendMessage)
 
 // Enter tugmasini bosganda yuborish
-msgInput.addEventListener("keypress",(e)=>{
-    if(e.key === "Enter"){
+msgInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") {
         sendMessage()
     }
 })
 
 // Sahifa yuklanganda ishlaydi
-window.addEventListener("DOMContentLoaded",()=>{
+window.addEventListener("DOMContentLoaded", () => {
     loadMyChatList()
 })
 
-async function loadMyChatList(){
+async function loadMyChatList() {
     const response = await fetch(`http://localhost:3000/api/chat-list/${myId}`)
     const contacts = await response.json()
 
     const chatListElement = document.getElementById('chat-list')
     chatListElement.innerHTML = "" // Tozalash
 
-    contacts.forEach(user=>{
+    contacts.forEach(user => {
         // Har bir kontaktni sidebar-ga qo'shamiz
         const chatItem = document.createElement("div")
         chatItem.className = 'chat-item'
         // BU YERDA ID QO'SHILDI (Dublikatni oldini olish uchun)
         chatItem.id = `chat-${user.customId}`
+
+        // Statusga qarab klass tanlaymiz
+        const statusClass = user.status === 'online' ? 'status-online' : 'status-offline';
+
         chatItem.innerHTML = `
-            <div class="avatar">${user.customId.charAt(2)}</div>
+            <div class="avatar">
+                ${user.customId.charAt(2)}
+                <div class="status-dot ${statusClass}"></div>
+            </div>
             <div class="chat-info">
                 <h4>${user.customId}</h4>
-                <p>${user.status}</p>
+                <p>${user.lastMessage || "Yangi chat"}</p>
             </div>
         `
 
         // Kontakt bosilganda chat tarixini yuklash
-        chatItem.addEventListener("click",()=>{
-            currentTargetId = user.customId
-            document.getElementById("current-chat-name").innerText = "ID: " + user.customId
+        chatItem.addEventListener("click", () => {
+
 
             // 1. Statusni aniqlash va yozish
             if (user.status === "online") {
@@ -286,15 +296,7 @@ async function loadMyChatList(){
                 statusLabel.innerText = formatLastSeen(user.lastSeen || new Date());
             }
 
-            // 2. Unread badge'ni tozalash
-            unreadMessages[user.customId] = 0;
-            const badge = chatItem.querySelector('.unread-badge');
-            if (badge) badge.remove();
-
-            document.querySelectorAll(".chat-item").forEach(i=> i.classList.remove("active"))
-            chatItem.classList.add("active")
-
-            loadChatHistory(user.customId) // Tarixni yuklash
+            handleChatClick(chatItem, user.customId, user.status, user.lastSeen);
 
             // Mobil versiyada oynani ochish
             appContainer.classList.add("chat-open")
@@ -304,13 +306,13 @@ async function loadMyChatList(){
     })
 }
 
-function formatLastSeen(date){
+function formatLastSeen(date) {
     const now = new Date()
     const last = new Date(date)
-    const diff = Math.floor((now-last) / 1000) // sekundlarda
+    const diff = Math.floor((now - last) / 1000) // sekundlarda
 
-    if(diff < 60) return "hozirgina"
-    if(diff < 3600) return Math.floor(diff / 60) + " daqiqa avval"
-    if(diff < 86400) return Math.floor(diff / 3600) + " soat avval"
+    if (diff < 60) return "hozirgina"
+    if (diff < 3600) return Math.floor(diff / 60) + " daqiqa avval"
+    if (diff < 86400) return Math.floor(diff / 3600) + " soat avval"
     return Math.floor(diff / 86400) + " kun avval"
 }

@@ -62,13 +62,30 @@ socket.on("user_stop_typing", (data) => {
 });
 
 socket.on("user_status_changed", (data) => {
-    // Agar biz ayni shu odam bilan chatni ochib turgan bo'lsak
+    // 1. Tepada ochiq turgan chat statusini yangilash
     if (currentTargetId === data.userId) {
         if (data.status === "online") {
             statusLabel.innerText = "online";
+            statusLabel.style.color = "#2481cc"; // Ko'k rang online uchun
         } else {
             // Offline bo'lsa, qachon chiqqanini hisoblab yozamiz
             statusLabel.innerText = formatLastSeen(data.lastSeen);
+            statusLabel.style.color = "#888"; // Kulrang offline uchun
+        }
+    }
+
+    // 2. Sidebar (chap taraf) dagi chat-item statusini yangilash
+    const sidebarItem = document.getElementById(`chat-${data.userId}`);
+    if (sidebarItem) {
+        const statusText = sidebarItem.querySelector("p");
+        if (data.status === "online") {
+            statusText.innerText = "online";
+            statusText.style.color = "#2481cc";
+        } else {
+            // Agar oxirgi xabar mavjud bo'lsa, status o'rniga xabar turaverishi kerak
+            // Lekin siz statusni ko'rsatmoqchi bo'lsangiz:
+            statusText.innerText = "offline"; 
+            statusText.style.color = "#888";
         }
     }
 });

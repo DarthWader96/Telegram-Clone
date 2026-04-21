@@ -33,15 +33,13 @@ socket.on("connect",()=>{
 socket.on("receive_message",(data)=>{
     // 1. FAQAT o'sha odam bilan chat ochiq bo'lsa xabarni ko'rsatamiz
     if(currentTargetId === data.from){
-        displayMessage(data.msg, "received", data.from)
+        displayMessage(data.msg, "received", data.from, new Date())
     }else{
         // Agar boshqa odamdan xabar kelsa, shunchaki sidebar-ni yangilaymiz (bildirishnoma sifatida)
         console.log("Boshqa odamdan xabar keldi:", data.from)
     }
 
-    // 2. Avtomatik tarzda javob qaytarish uchun nishonni belgilash
-    currentTargetId = data.from
-    document.getElementById("current-chat-name").innerText = "ID: " + currentTargetId
+    
 
     // 3. Agar bu odam ro'yxatda bo'lmasa, sidebar-ga qo'shish (ixtiyoriy)
     updateChatList(data.from, data.msg)
@@ -114,18 +112,24 @@ function updateChatList(userId, lastMsg = "Yangi xabar..."){
         unreadMessages[userId] = (unreadMessages[userId] || 0) + 1;
     }
 
-    const countHTML = unreadMessages[userId] > 0
-        ? `<span class="unread-badge">${unreadMessages[userId]}</span>`
-        : "";
+    const count = unreadMessages[userId] || 0;
+    const countHTML = count > 0 ? `<span class="unread-badge">${count}</span>` : "";
 
     // Agar bu odam ro'yxatda bo'lsa, uni shunchaki tepaga suramiz
     if(existingItem){
-        existingItem.querySelector("p").innerText = lastMsg
-        let badge = existingItem.querySelector('.unread-badge');
-        if (badge) badge.outerHTML = countHTML;
-        else existingItem.querySelector('.chat-info').innerHTML += countHTML;
-
-        chatList.prepend(existingItem)
+        // Oxirgi xabarni yangilash
+        existingItem.querySelector("p").innerText = lastMsg;
+        
+        // Eski badgeni o'chirib, yangisini qo'shish
+        const oldBadge = existingItem.querySelector(".unread-badge");
+        if (oldBadge) oldBadge.remove();
+        
+        if (count > 0) {
+            existingItem.querySelector(".chat-info").insertAdjacentHTML('beforeend', countHTML);
+        }
+        
+        // Chatni ro'yxat boshiga chiqarish
+        chatList.prepend(existingItem);
         return
     }
 
@@ -144,23 +148,23 @@ function updateChatList(userId, lastMsg = "Yangi xabar..."){
             
             
     // Chatga bosilganda o'sha odam bilan suhbatni ochish
-    chatItem.addEventListener("click",()=>{
-        currentTargetId = userId
-        document.getElementById("current-chat-name").innerText = "ID: " + userId
-
-        // Unread badge'ni tozalash
-        unreadMessages[userId] = 0;
-        const badge = chatItem.querySelector('.unread-badge');
-        if (badge) badge.remove();
-
-        document.querySelectorAll('.chat-item').forEach(i=> i.classList.remove("active"))
-        chatItem.classList.add("active")
-        loadChatHistory(userId)
-    })
-
+    chatItem.addEventListener("click", () => handleChatClick(chatItem, userId));
     chatList.prepend(chatItem) // Eng tepaga qo'shish
+}
 
+// Takrorlanishni kamaytirish uchun Click funksiyasi
+function handleChatClick(element, userId) {
+    currentTargetId = userId;
+    unreadMessages[userId] = 0; // Raqamni nolga tushirish
     
+    const badge = element.querySelector(".unread-badge");
+    if (badge) badge.remove();
+
+    document.getElementById("current-chat-name").innerText = "ID: " + userId;
+    document.querySelectorAll(".chat-item").forEach(i => i.classList.remove("active"));
+    element.classList.add("active");
+    
+    loadChatHistory(userId);
 }
 
 async function loadChatHistory(targetId) {
@@ -293,4 +297,3 @@ function formatLastSeen(date){
     if(diff < 86400) return Math.floor(diff / 3600) + " soat avval"
     return Math.floor(diff / 86400) + " kun avval"
 }
-

@@ -145,20 +145,25 @@
 
 .chat-info {
     position: relative;
-    width: 100%;
+    flex: 1;
 }
 
 .unread-badge {
     position: absolute;
-    right: 10px;
-    bottom: 5px;
-    background: #2481cc;
+    right: 5px;
+    bottom: 0px;
+    background-color: #2481cc; /* Zangi/Telegram ko'k rangi */
     color: white;
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 10px;
-    min-width: 15px;
-    text-align: center;
+    font-size: 12px;
+    font-weight: bold;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
 

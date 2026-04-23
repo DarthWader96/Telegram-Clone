@@ -15,9 +15,13 @@ let currentTargetId = ""; // Xabar yubormoqchi bo'lgan odamimizning ID-si
 let unreadMessages = {} // { "Z-123": 5 } ko'rinishida saqlaymiz
 
 // 1. Foydalanuvchi uchun vaqtinchalik ID yaratamiz (Zangi-style)
-// Keyinchalik buni bazadan olamiz
-let myId = localStorage.getItem("myZangiId") || "Z-" + Math.floor(Math.random() * 1000000)
-localStorage.setItem("myZangiId", myId)
+// Har doim 6 xonali raqam chiqishini ta'minlaymiz
+let myId = localStorage.getItem("myZangiId");
+if (!myId) {
+    const randomNum = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+    myId = "Z-" + randomNum;
+    localStorage.setItem("myZangiId", myId);
+}
 
 // ID-ni ekranda ko'rsatish
 document.getElementById("my-id").innerText = myId
@@ -47,14 +51,35 @@ socket.on("user_typing", (data) => {
     if (currentTargetId === data.from) {
         statusLabel.innerText = "yozmoqda...";
         statusLabel.style.color = "#2481cc";
+        return
+    }
+    const item = document.getElementById(`chat-${data.from}`);
+    if (item) {
+        const p = item.querySelector("p");
+        // Agar hozirgi matn allaqachon "yozmoqda..." bo'lmasa, eskisini saqlab qo'yamiz
+        if (p.innerText !== "yozmoqda...") {
+            item.setAttribute("data-old-msg", p.innerText);
+            p.innerText = "yozmoqda...";
+            p.style.color = "#2481cc"; // Diqqatni tortish uchun ko'k rang
+        }
     }
 });
 
 socket.on("user_stop_typing", (data) => {
     if (currentTargetId === data.from) {
         statusLabel.innerText = "online";
-        // Rangi ko'k bo'lishi kerak, chunki u hali ham online
         statusLabel.style.color = "#2481cc";
+        return
+    }
+
+    const item = document.getElementById(`chat-${data.from}`);
+    if (item) {
+        const p = item.querySelector("p");
+        const oldMsg = item.getAttribute("data-old-msg");
+        if (oldMsg) {
+            p.innerText = oldMsg;
+            p.style.color = "#000"; // Asl rangiga qaytarish
+        }
     }
 });
 
@@ -266,6 +291,17 @@ searchInput.addEventListener("input", async (e) => {
         const tempItem = document.getElementById(`chat-${lastSearchedId}`);
         // Faqat hali yozishma bo'lmagan ("Yangi chat") bo'lsa o'chiramiz
         if (tempItem && tempItem.querySelector("p").innerText === "Yangi chat") {
+            // AGAR HOZIR OCHIQ TURGAN CHAT SHU BO'LSA
+            if (currentTargetId === lastSearchedId) {
+                currentTargetId = ""; // IDni tozalaymiz
+                document.getElementById("current-chat-name").innerText = "";
+                document.getElementById("status").innerText = "";
+                messagesContainer.innerHTML = ""; // Xabarlarni tozalash
+                
+                // Mobil versiyada bo'lsa, chatni yopib sidebar-ga qaytaramiz
+                appContainer.classList.remove("chat-open");
+            }
+
             tempItem.remove();
             lastSearchedId = null;
         }

@@ -93,9 +93,15 @@
 }
 
 .chat-header {
+    display: none;
     padding: 15px;
     background: white;
     border-bottom: 1px solid #ddd;
+}
+
+/* Faqat oyna ochilganda header ko'rinadi */
+.chat-open .chat-header {
+    display: flex;
 }
 
 .messages-container {

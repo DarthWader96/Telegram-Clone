@@ -110,7 +110,7 @@ function displayMessage(text, type, senderId, msgTime = new Date()) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight
 }
 
-
+let lastSearchedId = null; // Qidiruvda topilgan vaqtinchalik IDni eslab qolish uchun
 
 // Funksiya endi async bo'ldi
 function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) {
@@ -127,7 +127,7 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) 
     }
 
     // 1. Xabarlar sonini hisoblash (Faqat xabar kelgan bo'lsa)
-    if (lastMsg !== null && currentTargetId !== userId) {
+    if (lastMsg !== null && lastMsg !== "Yangi chat" && currentTargetId !== userId) {
         unreadMessages[userId] = (unreadMessages[userId] || 0) + 1;
     } else if (currentTargetId === userId) {
         unreadMessages[userId] = 0;
@@ -164,8 +164,8 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) 
         if (count > 0) {
             existingItem.querySelector(".chat-info").insertAdjacentHTML('beforeend', countHTML);
         }
-        // MUHIM TARTIB: Faqatgina yangi xabar kelsagina eng tepaga chiqaramiz!
-        if (lastMsg) {
+        // Faqatgina yangi xabar kelsagina eng tepaga chiqaramiz
+        if (lastMsg && lastMsg !== "Yangi chat") {
             chatList.prepend(existingItem);
         }
         return
@@ -173,13 +173,13 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) 
 
 
     // Agar ro'yxatda bo'lmasa, yangi yaratamiz
-    const initialStatus = status || 'online';
+    const initialStatus = status || 'offline';
     const chatItem = document.createElement("div");
     chatItem.className = "chat-item";
     chatItem.id = `chat-${userId}`;
 
     // Vaqtni boshlang'ich qiymat bilan biriktirib qo'yamiz
-    chatItem.setAttribute("data-lastseen", lastSeen || new Date());
+    chatItem.setAttribute("data-lastseen", lastSeen || new Date().toISOString());
 
     // HTML ichiga status-dot ni dinamik status bilan qo'shdik
     chatItem.innerHTML = `
@@ -208,7 +208,7 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) 
             statusLabel.innerText = "online";
             statusLabel.style.color = "#2481cc"; // Ko'k rangga o'tadi
         } else {
-            statusLabel.innerText = formatLastSeen(latestLastSeen || new Date());
+            statusLabel.innerText = formatLastSeen(latestLastSeen);
             statusLabel.style.color = "#888"; // Kulrangga o'tadi
         }
 
@@ -251,43 +251,39 @@ async function loadChatHistory(targetId) {
 
 
 searchInput.addEventListener("input", async (e) => {
-    // Kiritilgan so'zni bo'shliqlardan tozalash va katta harfga o'tkazish
     const searchTerm = e.target.value.trim().toUpperCase();
+    const idRegex = /^Z-\d{6}$/;
 
-    // 1-QADAM: Mavjud chatlar ichidan filter qilish
+    // 1. Mavjud chatlarni filter qilish
     const chatItems = document.querySelectorAll(".chat-item");
     chatItems.forEach(item => {
         const idName = item.querySelector("h4").innerText.toUpperCase();
-        if (idName.includes(searchTerm)) {
-            item.style.display = "flex";
-        } else {
-            item.style.display = "none";
-        }
+        item.style.display = idName.includes(searchTerm) ? "flex" : "none";
     });
 
-    // 2-QADAM: Yangi foydalanuvchini FAQAT to'liq ID yozilganda qidirish
-    // Shart: Z bilan boshlanadi, chiziqcha, va roppa-rosa 6 ta raqam (Masalan: Z-123456)
-    const idRegex = /^Z-\d{6}$/; 
+    // 2. BACKSPACE MUAMMOSI: Agar ID formati buzilsa, qidiruv natijasini o'chiramiz
+    if (!idRegex.test(searchTerm) && lastSearchedId) {
+        const tempItem = document.getElementById(`chat-${lastSearchedId}`);
+        // Faqat hali yozishma bo'lmagan ("Yangi chat") bo'lsa o'chiramiz
+        if (tempItem && tempItem.querySelector("p").innerText === "Yangi chat") {
+            tempItem.remove();
+            lastSearchedId = null;
+        }
+    }
 
-    // Agar yozuv to'liq ID formatiga tushsa
+    // 3. TO'LIQ ID YOZILSA: Serverdan qidirish
     if (idRegex.test(searchTerm)) {
         const existing = document.getElementById(`chat-${searchTerm}`);
-        
-        // Va u ro'yxatda hali yo'q bo'lsa
         if (!existing) {
             try {
                 const response = await fetch(`http://localhost:3000/api/user-status/${searchTerm}`);
-                
                 if (response.ok) {
                     const data = await response.json();
-                    
-                    // Serverdan haqiqatan ham ma'lumot kelganiga ishonch hosil qilish
-                    if (data && data.status) {
-                        updateChatList(searchTerm, "Yangi chat...", data.status, data.lastSeen);
-                    }
+                    updateChatList(searchTerm, "Yangi chat", data.status, data.lastSeen);
+                    lastSearchedId = searchTerm; // Topilganini eslab qolamiz
                 }
             } catch (err) {
-                console.log("Bu ID tizimdan topilmadi");
+                console.log("Foydalanuvchi topilmadi");
             }
         }
     }

@@ -35,7 +35,7 @@ socket.on("receive_message", (data) => {
     // 1. FAQAT o'sha odam bilan chat ochiq bo'lsa xabarni ko'rsatamiz
     if (currentTargetId === data.from) {
         displayMessage(data.msg, "received", data.from, data.time)
-    } 
+    }
 
     // Sidebar-ni yangilash (Xabar + Status bilan)
     updateChatList(data.from, data.msg, 'online');
@@ -53,7 +53,8 @@ socket.on("user_typing", (data) => {
 socket.on("user_stop_typing", (data) => {
     if (currentTargetId === data.from) {
         statusLabel.innerText = "online";
-        statusLabel.style.color = "#888";
+        // Rangi ko'k bo'lishi kerak, chunki u hali ham online
+        statusLabel.style.color = "#2481cc";
     }
 });
 
@@ -61,17 +62,24 @@ socket.on("user_status_changed", (data) => {
     // AGAR BU O'ZIM BO'LSAM, TO'XTATISH
     if (data.userId === myId) return;
 
+    // Sidebar-ni yangilashda lastSeen-ni ham uzatamiz
+    updateChatList(data.userId, null, data.status, data.lastSeen);
+
     // 1. Tepada ochiq turgan chat statusini yangilash
     if (currentTargetId === data.userId) {
         const statusLabel = document.getElementById("status");
-        statusLabel.innerText = data.status === "online" ? "online" : "offline";
-        statusLabel.style.color = data.status === "online" ? "#2481cc" : "#888";
+        if (data.status === "online") {
+            statusLabel.innerText = "online";
+            statusLabel.style.color = "#2481cc";
+        } else {
+            // Realtime offline bo'lganda vaqtni darhol yangilash
+            statusLabel.innerText = formatLastSeen(data.lastSeen || new Date());
+            statusLabel.style.color = "#888";
+        }
     }
 
-    // SIDEBAR-ni yangilash (Xabarni o'zgartirmasdan, faqat statusni)
-    updateChatList(data.userId, null, data.status);
 
-    
+
 });
 
 // Inputga yozganda serverga bildirish
@@ -105,7 +113,7 @@ function displayMessage(text, type, senderId, msgTime = new Date()) {
 
 
 // Funksiya endi async bo'ldi
-function updateChatList(userId, lastMsg = null, status = null) {
+function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) {
     // AGAR BU O'ZIM BO'LSAM, RO'YXATGA QO'SHMASLIK
     if (userId === myId) return;
 
@@ -115,7 +123,7 @@ function updateChatList(userId, lastMsg = null, status = null) {
     // MUHIM O'ZGARIŞ: Agar bu yangi odam bo'lsa va hali xabar kelmagan bo'lsa (faqat status o'zgargan bo'lsa),
     // uni ro'yxatga qo'shmaymiz.
     if (!existingItem && lastMsg === null) {
-        return; 
+        return;
     }
 
     // 1. Xabarlar sonini hisoblash (Faqat xabar kelgan bo'lsa)
@@ -139,6 +147,14 @@ function updateChatList(userId, lastMsg = null, status = null) {
             if (dot) {
                 dot.className = `status-dot status-${status}`;
             }
+
+            // updateChatList ichidagi tegishli qatorlarni shunga o'zgartiring
+            if (lastSeen) {
+                existingItem.setAttribute("data-lastseen", lastSeen);
+            } else if (!existingItem.hasAttribute("data-lastseen")) {
+                // Agar vaqt kelmasa va oldin ham bo'lmasa, hozirgi vaqtni qo'yib turamiz
+                existingItem.setAttribute("data-lastseen", new Date().toISOString());
+            }
         }
 
         // Eski badgeni o'chirib, yangisini qo'shish
@@ -148,17 +164,22 @@ function updateChatList(userId, lastMsg = null, status = null) {
         if (count > 0) {
             existingItem.querySelector(".chat-info").insertAdjacentHTML('beforeend', countHTML);
         }
-        // Chatni ro'yxat boshiga chiqarish
-        chatList.prepend(existingItem);
+        // MUHIM TARTIB: Faqatgina yangi xabar kelsagina eng tepaga chiqaramiz!
+        if (lastMsg) {
+            chatList.prepend(existingItem);
+        }
         return
     }
 
 
     // Agar ro'yxatda bo'lmasa, yangi yaratamiz
-    const initialStatus = status || 'offline';
+    const initialStatus = status || 'online';
     const chatItem = document.createElement("div");
     chatItem.className = "chat-item";
     chatItem.id = `chat-${userId}`;
+
+    // Vaqtni boshlang'ich qiymat bilan biriktirib qo'yamiz
+    chatItem.setAttribute("data-lastseen", lastSeen || new Date());
 
     // HTML ichiga status-dot ni dinamik status bilan qo'shdik
     chatItem.innerHTML = `
@@ -174,8 +195,27 @@ function updateChatList(userId, lastMsg = null, status = null) {
         `;
 
 
-    // Chatga bosilganda o'sha odam bilan suhbatni ochish
-    chatItem.addEventListener("click", () => handleChatClick(chatItem, userId));
+    // YANGI CHAT UCHUN CLICK HODISASI (Qora rang muammosi shu yerda hal bo'ldi)
+    chatItem.addEventListener("click", () => {
+        const dot = chatItem.querySelector(".status-dot");
+        const isOnline = dot.classList.contains("status-online");
+        const latestLastSeen = chatItem.getAttribute("data-lastseen");
+
+        // Domdan status labelni topamiz
+        const statusLabel = document.getElementById("status");
+
+        if (isOnline) {
+            statusLabel.innerText = "online";
+            statusLabel.style.color = "#2481cc"; // Ko'k rangga o'tadi
+        } else {
+            statusLabel.innerText = formatLastSeen(latestLastSeen || new Date());
+            statusLabel.style.color = "#888"; // Kulrangga o'tadi
+        }
+
+        handleChatClick(chatItem, userId);
+        appContainer.classList.add("chat-open"); // Mobil qurilmalar (Poco X6 va hkz) uchun
+    });
+
     chatList.prepend(chatItem) // Eng tepaga qo'shish
 }
 
@@ -210,15 +250,57 @@ async function loadChatHistory(targetId) {
 
 
 
-// Qidiruv maydoniga ID yozilganda
-searchInput.addEventListener("input", (e) => {
-    currentTargetId = e.target.value.trim()
-    document.getElementById("current-chat-name").innerText = "ID: " + currentTargetId
-})
+searchInput.addEventListener("input", async (e) => {
+    // Kiritilgan so'zni bo'shliqlardan tozalash va katta harfga o'tkazish
+    const searchTerm = e.target.value.trim().toUpperCase();
+
+    // 1-QADAM: Mavjud chatlar ichidan filter qilish
+    const chatItems = document.querySelectorAll(".chat-item");
+    chatItems.forEach(item => {
+        const idName = item.querySelector("h4").innerText.toUpperCase();
+        if (idName.includes(searchTerm)) {
+            item.style.display = "flex";
+        } else {
+            item.style.display = "none";
+        }
+    });
+
+    // 2-QADAM: Yangi foydalanuvchini FAQAT to'liq ID yozilganda qidirish
+    // Shart: Z bilan boshlanadi, chiziqcha, va roppa-rosa 6 ta raqam (Masalan: Z-123456)
+    const idRegex = /^Z-\d{6}$/; 
+
+    // Agar yozuv to'liq ID formatiga tushsa
+    if (idRegex.test(searchTerm)) {
+        const existing = document.getElementById(`chat-${searchTerm}`);
+        
+        // Va u ro'yxatda hali yo'q bo'lsa
+        if (!existing) {
+            try {
+                const response = await fetch(`http://localhost:3000/api/user-status/${searchTerm}`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Serverdan haqiqatan ham ma'lumot kelganiga ishonch hosil qilish
+                    if (data && data.status) {
+                        updateChatList(searchTerm, "Yangi chat...", data.status, data.lastSeen);
+                    }
+                }
+            } catch (err) {
+                console.log("Bu ID tizimdan topilmadi");
+            }
+        }
+    }
+});
 
 // 2. Mobil versiyada orqaga qaytish
 backBtn.addEventListener("click", () => {
     appContainer.classList.remove("chat-open")
+
+    // MUHIM QISM: Chatdan chiqqanimizni dasturga bildirish uchun ID ni tozalaymiz
+    currentTargetId = ""; 
+    document.getElementById("current-chat-name").innerText = "";
+    document.getElementById("status").innerText = "";
 })
 
 // 3. Xabar yuborish funksiyasi
@@ -265,11 +347,19 @@ async function loadMyChatList() {
     chatListElement.innerHTML = "" // Tozalash
 
     contacts.forEach(user => {
+        // 1. FILTR: O'zimizni ro'yxatda ko'rsatmaymiz
+        if (user.customId === myId) return;
+
         // Har bir kontaktni sidebar-ga qo'shamiz
         const chatItem = document.createElement("div")
         chatItem.className = 'chat-item'
+
         // BU YERDA ID QO'SHILDI (Dublikatni oldini olish uchun)
         chatItem.id = `chat-${user.customId}`
+
+        // user.lastSeen bazada bo'lsa uni, bo'lmasa hozirgi vaqtni ISO formatda qo'yamiz
+        const initialTime = user.lastSeen ? new Date(user.lastSeen).toISOString() : new Date().toISOString();
+        chatItem.setAttribute("data-lastseen", initialTime);
 
         // Statusga qarab klass tanlaymiz
         const statusClass = user.status === 'online' ? 'status-online' : 'status-offline';
@@ -287,16 +377,25 @@ async function loadMyChatList() {
 
         // Kontakt bosilganda chat tarixini yuklash
         chatItem.addEventListener("click", () => {
+            // MUHIM: Statusni obyekt ichidan emas, balki sidebar-dagi dumaloqchadan olamiz
+            // Chunki dumaloqcha realtime yangilangan, 'user' obyekti esa eskirgan bo'lishi mumkin
+            const dot = chatItem.querySelector(".status-dot");
+            const isOnline = dot.classList.contains("status-online");
 
+            // Eng so'nggi vaqtni HTML elementidan o'qib olamiz
+            const latestLastSeen = chatItem.getAttribute("data-lastseen");
 
-            // 1. Statusni aniqlash va yozish
-            if (user.status === "online") {
+            const statusLabel = document.getElementById("status");
+            if (isOnline) {
                 statusLabel.innerText = "online";
+                statusLabel.style.color = "#2481cc";
             } else {
-                statusLabel.innerText = formatLastSeen(user.lastSeen || new Date());
+                // Formatlashda eng yangi vaqtni ishlatamiz
+                statusLabel.innerText = formatLastSeen(latestLastSeen);
+                statusLabel.style.color = "#888";
             }
 
-            handleChatClick(chatItem, user.customId, user.status, user.lastSeen);
+            handleChatClick(chatItem, user.customId);
 
             // Mobil versiyada oynani ochish
             appContainer.classList.add("chat-open")
@@ -307,12 +406,18 @@ async function loadMyChatList() {
 }
 
 function formatLastSeen(date) {
-    const now = new Date()
-    const last = new Date(date)
-    const diff = Math.floor((now - last) / 1000) // sekundlarda
+    if (!date || date === "null" || date === "undefined") return "hozirgina";
 
-    if (diff < 60) return "hozirgina"
-    if (diff < 3600) return Math.floor(diff / 60) + " daqiqa avval"
-    if (diff < 86400) return Math.floor(diff / 3600) + " soat avval"
-    return Math.floor(diff / 86400) + " kun avval"
+    const last = new Date(date);
+    // Agar sana baribir noto'g'ri bo'lsa (Invalid Date)
+    if (isNaN(last.getTime())) return "hozirgina";
+
+    const now = new Date();
+    const diff = Math.floor((now - last) / 1000); // sekundlarda
+
+    if (diff < 5) return "hozirgina";
+    if (diff < 60) return diff + " soniya avval";
+    if (diff < 3600) return Math.floor(diff / 60) + " daqiqa avval";
+    if (diff < 86400) return Math.floor(diff / 3600) + " soat avval";
+    return Math.floor(diff / 86400) + " kun avval";
 }

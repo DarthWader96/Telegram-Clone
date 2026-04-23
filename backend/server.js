@@ -102,7 +102,11 @@ io.on("connection", (socket) => {
         socket.customId = userId
 
         // Bazada statusni 'online' qilish
-        await User.findOneAndUpdate({ customId: userId }, { status: 'online' });
+        await User.findOneAndUpdate(
+            { customId: userId },
+            { status: 'online' },
+            { upsert: true, returnDocument: 'after' }
+        );
         console.log(`${userId} hozir online`);
 
         // MANA SHU QATOR QO'SHILADI: Hamma chatdagilarga bu odam kirdi deb xabar berish
@@ -129,7 +133,7 @@ io.on("connection", (socket) => {
             })
             await newMessage.save()
 
-            
+
 
             // Qabul qiluvchiga xabar bilan birga yuboruvchining statusini ham beramiz
             io.to(data.to).emit("receive_message", {
@@ -158,12 +162,21 @@ io.on("connection", (socket) => {
     // 2. Uzilganda vaqtni saqlash
     socket.on("disconnect", async () => {
         if (socket.customId) {
-            // Bazada statusni 'offline' qilish
-            const now = Date.now();
-            await User.findOneAndUpdate({ customId: socket.customId }, { status: "offline", lastSeen: now })
+            // Hozirgi vaqtni ISO formatida olamiz
+            const nowISO = new Date().toISOString();
+
+            await User.findOneAndUpdate(
+                { customId: socket.customId },
+                { status: "offline", lastSeen: nowISO }
+            );
+
             console.log(`${socket.customId} hozir offline`)
-            // Boshqalarga bu foydalanuvchi offline bo'lganini bildirish (ixtiyoriy)
-            io.emit("user_status_changed", { userId: socket.customId, status: "offline", lastSeen: now })
+            // Boshqalarga ISO vaqtini yuboramiz
+            io.emit("user_status_changed", {
+                userId: socket.customId,
+                status: "offline",
+                lastSeen: nowISO
+            });
         }
         console.log("Foydalanuvchi uzildi")
     })

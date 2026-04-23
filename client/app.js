@@ -38,11 +38,15 @@ socket.on("connect", () => {
 socket.on("receive_message", (data) => {
     // 1. FAQAT o'sha odam bilan chat ochiq bo'lsa xabarni ko'rsatamiz
     if (currentTargetId === data.from) {
+        // 1. Chat ochiq bo'lgani uchun darhol serverga o'qildi deb bildiramiz
+        socket.emit("messages_read", { from: data.from, to: myId });
+
+        // 2. Xabarni ekranda ko'rsatamiz
         displayMessage(data.msg, "received", data.from, data.time)
     }
 
     // Sidebar-ni yangilash (Xabar + Status bilan)
-    updateChatList(data.from, data.msg, 'online');
+    updateChatList(data.from, data.msg, data.status);
 })
 
 const statusLabel = document.getElementById("status");
@@ -102,9 +106,20 @@ socket.on("user_status_changed", (data) => {
             statusLabel.style.color = "#888";
         }
     }
+});
 
-
-
+socket.on("messages_marked_read", (data) => {
+    // Agar ochiq turgan chatdagi odam o'qigan bo'lsa
+    if (data.by === currentTargetId) {
+        // Hamma kulrang bitta ptichkalarni topamiz
+        const sentTicks = document.querySelectorAll(".sent-tick");
+        sentTicks.forEach(tick => {
+            // Klassni o'zgartiramiz: sent-tick -> read-tick
+            // CSS ::after avtomatik ravishda ikkinchi ptichkani chizib beradi
+            tick.classList.remove("sent-tick");
+            tick.classList.add("read-tick");
+        });
+    }
 });
 
 // Inputga yozganda serverga bildirish
@@ -119,15 +134,27 @@ msgInput.addEventListener("input", () => {
 });
 
 // Xabarni ekranda ko'rsatish uchun alohida funksiya
-function displayMessage(text, type, senderId, msgTime = new Date()) {
+function displayMessage(text, type, senderId, msgTime = new Date(), isRead = false) {
     const dateObj = new Date(msgTime) // Bazadagi vaqtni yoki hozirgi vaqtni oladi
     const time = dateObj.getHours() + ":" + dateObj.getMinutes().toString().padStart(2, "0")
+
+    // Ptichka mantiqi: Faqat biz yuborgan xabarlar uchun
+    let ticksHTML = "";
+    if (type === "sent") {
+        // isRead bo'lsa 'read-tick', bo'lmasa 'sent-tick' klassi beriladi
+        const tickClass = isRead ? "read-tick" : "sent-tick";
+        ticksHTML = `
+            <div class="tick-container">
+                <span class="tick ${tickClass}">✔</span>
+            </div>
+        `;
+    }
 
     const messageHTML = `
         <div class="message ${type}">
             ${type === "received" ? `<small style="color: #2481cc; display:block;">${senderId}</small>` : ""}
             <p>${text}</p>
-            <span class="time">${time}</span>
+            <span class="time">${time} ${ticksHTML}</span>
         </div>
     `
 
@@ -244,6 +271,12 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) 
     chatList.prepend(chatItem) // Eng tepaga qo'shish
 }
 
+// O'qilganlikni serverga bildirish
+function notifyRead(partnerId) {
+    if (!partnerId) return;
+    socket.emit("messages_read", { from: partnerId, to: myId });
+}
+
 // Takrorlanishni kamaytirish uchun Click funksiyasi
 function handleChatClick(element, userId) {
     currentTargetId = userId;
@@ -257,6 +290,9 @@ function handleChatClick(element, userId) {
     element.classList.add("active");
 
     loadChatHistory(userId);
+
+    // Xabarlarni o'qildi deb belgilash
+    notifyRead(userId);
 }
 
 async function loadChatHistory(targetId) {
@@ -267,7 +303,7 @@ async function loadChatHistory(targetId) {
 
     messages.forEach(m => {
         const type = (m.from === myId) ? 'sent' : 'received'
-        displayMessage(m.text, type, m.from, m.time)
+        displayMessage(m.text, type, m.from, m.time, m.isRead)
     })
 }
 

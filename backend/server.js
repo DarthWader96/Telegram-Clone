@@ -149,6 +149,23 @@ io.on("connection", (socket) => {
         }
     })
 
+    // XABARLARNI O'QILDI DEB BELGILASH (SHU YERGA QO'SHING)
+    socket.on("messages_read", async (data) => {
+        try {
+            // data: { from: "Z-Partner", to: "Z-Me" }
+            // "from" (sherigimiz) yozgan xabarlarni "to" (biz) o'qidik
+            await Message.updateMany(
+                { from: data.from, to: data.to, isRead: false },
+                { $set: { isRead: true } }
+            );
+            
+            // Xabarni yuborgan odamga (sherigimizga) "xabarlaring o'qildi" deb xabar beramiz
+            io.to(data.from).emit("messages_marked_read", { by: data.to });
+        } catch (err) {
+            console.error("O'qilganlikni yangilashda xato:", err);
+        }
+    });
+
     // 1. "Yozayapti..." holati
     socket.on("typing", (data) => {
         // data: { to: "Z-123", from: "Z-456" }

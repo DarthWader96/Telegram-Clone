@@ -5,7 +5,7 @@ const messageChema = new mongoose.Schema({
     to: { type: String, required: true },   // Qabul qiluvchi ID
     text: { type: String, required: true },
     time: { type: Date, default: Date.now },
-
+    isRead: { type: Boolean, default: false } // Shu qatorni qo'shing
 })
 
 module.exports = mongoose.model("Message", messageChema)

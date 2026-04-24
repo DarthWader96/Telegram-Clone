@@ -19,6 +19,11 @@ let unreadMessages = {} // { "Z-123": 5 } ko'rinishida saqlaymiz
 let myId = localStorage.getItem("myZangiId");
 let myName = localStorage.getItem("myZangiName");
 
+// HIMOYALASH: Faqat tizimga kirgan bo'lsakgina (myId bor bo'lsa) serverga ulanamiz
+if (myId && myId !== "null" && myId !== "undefined") {
+    socket.emit("join_chat", myId);
+}
+
 const loginOverlay = document.getElementById("login-overlay");
 // 1. Login holatini tekshirish
 if (!myId || !myName) {
@@ -39,7 +44,7 @@ console.log("SIZNING ID-INGIZ: " + myId);
 console.log("----------------------------");
 
 // 2. Login tugmasi bosilganda
-document.getElementById("login-btn").addEventListener("click", async() => {
+document.getElementById("login-btn").addEventListener("click", async () => {
     const username = document.getElementById("login-name").value.trim();
     const phone = document.getElementById("login-phone").value.trim();
 
@@ -61,16 +66,16 @@ document.getElementById("login-btn").addEventListener("click", async() => {
                 // Login muvaffaqiyatli! Server bergan ID ni saqlaymiz (Yangi yoki Eski)
                 localStorage.setItem("myZangiId", data.customId);
                 localStorage.setItem("myZangiName", username);
-                
+
                 // Ekranni yangilaymiz
                 const nameElement = document.getElementById("my-name");
-                if (nameElement) nameElement.innerText = username; 
-                
+                if (nameElement) nameElement.innerText = username;
+
                 loginOverlay.style.display = "none";
                 document.body.classList.remove("modal-open");
-                
+
                 // Sahifani qayta yuklab, socketni ulaymiz
-                location.reload(); 
+                location.reload();
             } else {
                 // Xatolik (Masalan: Raqam band) - foydalanuvchiga ogohlantirish beramiz
                 alert("Xatolik: " + data.message);
@@ -79,7 +84,7 @@ document.getElementById("login-btn").addEventListener("click", async() => {
             console.error("Ulanish xatosi:", error);
             alert("Server bilan ulanib bo'lmadi!");
         }
-    }else {
+    } else {
         alert("Iltimos, ism va telefon raqamni to'liq kiriting.");
     }
 });
@@ -214,7 +219,6 @@ function displayMessage(text, type, senderId, msgTime = new Date(), isRead = fal
 
     const messageHTML = `
         <div class="message ${type}">
-            ${type === "received" ? `<small style="color: #2481cc; display:block;">${senderId}</small>` : ""}
             <p>${text}</p>
             <span class="time">${time} ${ticksHTML}</span>
         </div>
@@ -247,11 +251,16 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, 
         return;
     }
 
-    // 1. Xabarlar sonini hisoblash (Faqat xabar kelgan bo'lsa)
-    if (lastMsg !== null && lastMsg !== "Yangi chat" && currentTargetId !== userId) {
-        unreadMessages[userId] = (unreadMessages[userId] || 0) + 1;
-    } else if (currentTargetId === userId) {
-        unreadMessages[userId] = 0;
+    // --- MUHIM O'ZGARISH SHU YERDA ---
+    // Faqat yangi xabar kelgandagina va chat ochiq bo'lmagandagina sanaymiz
+    if (lastMsg !== null && lastMsg !== "Yangi chat") {
+        if (currentTargetId !== userId) {
+            unreadMessages[userId] = (unreadMessages[userId] || 0) + 1;
+        } else {
+            unreadMessages[userId] = 0;
+            // Agar chat ochiq bo'lsa, serverga o'qildi deb bildiramiz
+            socket.emit("messages_read", { from: userId, to: myId });
+        }
     }
 
     const count = unreadMessages[userId] || 0;
@@ -260,15 +269,15 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, 
     // Agar bu odam ro'yxatda bo'lsa, uni shunchaki tepaga suramiz
     if (existingItem) {
         // Oxirgi xabarni yangilash (agar berilgan bo'lsa)
-        if (lastMsg) existingItem.querySelector("p").innerText = lastMsg;
+        if (lastMsg && lastMsg !== "Yangi chat") {
+            existingItem.querySelector("p").innerText = lastMsg;
+        }
         existingItem.querySelector("h4").innerText = displayName;
 
         // STATUSNI yangilash (Eng muhim joyi!)
         if (status) {
             const dot = existingItem.querySelector(".status-dot");
-            if (dot) {
-                dot.className = `status-dot status-${status}`;
-            }
+            if (dot) dot.className = `status-dot status-${status}`;
 
             // updateChatList ichidagi tegishli qatorlarni shunga o'zgartiring
             if (lastSeen) {
@@ -283,6 +292,7 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, 
         const oldBadge = existingItem.querySelector(".unread-badge");
         if (oldBadge) oldBadge.remove();
 
+        // Agar son 0 dan katta bo'lsa yoki serverdan kelgan (user.unreadCount) bo'lsa ko'rsatish
         if (count > 0) {
             existingItem.querySelector(".chat-info").insertAdjacentHTML('beforeend', countHTML);
         }
@@ -310,9 +320,11 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, 
                 <div class="status-dot status-${initialStatus}"></div>
             </div>
             <div class="chat-info">
-                <h4>${displayName}</h4>
-                <p>${lastMsg}</p>
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <h4>${displayName}</h4>
                 ${countHTML}
+                </div>
+                <p>${lastMsg}</p>
             </div>
         `;
 
@@ -403,52 +415,77 @@ async function loadChatHistory(targetId) {
 
 
 searchInput.addEventListener("input", async (e) => {
-    const searchTerm = e.target.value.trim().toUpperCase();
+    const searchTerm = e.target.value.trim(); // Serverga yuborish uchun asl holi
+    const searchTermUpper = searchTerm.toUpperCase(); // Ismlarni filter qilish uchun
+
     const idRegex = /^Z-\d{6}$/;
+    // Telefon raqami formati (masalan: +998901234567 yoki 998901234567)
+    const phoneRegex = /^\+?\d{9,15}$/;
 
     // 1. Mavjud chatlarni filter qilish
-    const chatItems = document.querySelectorAll(".chat-item");
-    chatItems.forEach(item => {
-        const idName = item.querySelector("h4").innerText.toUpperCase();
-        item.style.display = idName.includes(searchTerm) ? "flex" : "none";
+    const items = document.querySelectorAll(".chat-item");
+    items.forEach(item => {
+        const title = item.querySelector("h4").innerText.toUpperCase();
+        const id = item.id.toUpperCase();
+        // Agar qidiruv bo'sh bo'lsa hamma chiqsin, bo'lmasa moslari
+        if (searchTerm === "") {
+            item.style.display = "flex";
+        } else {
+            item.style.display = (title.includes(searchTermUpper) || id.includes(searchTermUpper)) ? "flex" : "none";
+        }
     });
 
-    // 2. BACKSPACE MUAMMOSI: Agar ID formati buzilsa, qidiruv natijasini o'chiramiz
-    if (!idRegex.test(searchTerm) && lastSearchedId) {
+    // 2. BACKSPACE MUAMMOSI: Agar qidiruv maydoni o'chirilsa va vaqtinchalik chat bo'lsa
+    if (!idRegex.test(searchTermUpper) && !phoneRegex.test(searchTerm) && lastSearchedId) {
         const tempItem = document.getElementById(`chat-${lastSearchedId}`);
-        // Faqat hali yozishma bo'lmagan ("Yangi chat") bo'lsa o'chiramiz
         if (tempItem && tempItem.querySelector("p").innerText === "Yangi chat") {
-            // AGAR HOZIR OCHIQ TURGAN CHAT SHU BO'LSA
             if (currentTargetId === lastSearchedId) {
-                currentTargetId = ""; // IDni tozalaymiz
+                currentTargetId = "";
                 document.getElementById("current-chat-name").innerText = "";
                 document.getElementById("status").innerText = "";
-                messagesContainer.innerHTML = ""; // Xabarlarni tozalash
-                
-                // Mobil versiyada bo'lsa, chatni yopib sidebar-ga qaytaramiz
+                messagesContainer.innerHTML = "";
                 appContainer.classList.remove("chat-open");
             }
-
             tempItem.remove();
             lastSearchedId = null;
         }
     }
 
-    // 3. TO'LIQ ID YOZILSA: Serverdan qidirish
-    if (idRegex.test(searchTerm)) {
-        const existing = document.getElementById(`chat-${searchTerm}`);
+    // 3. TO'LIQ ID YOKI TELEFON RAQAM YOZILSA: Serverdan qidirish
+
+    // A. AGAR ID YOZILSA (Z-123456)
+    if (idRegex.test(searchTermUpper)) {
+        const existing = document.getElementById(`chat-${searchTermUpper}`);
         if (!existing) {
             try {
-                const response = await fetch(`http://localhost:3000/api/user-status/${searchTerm}`);
+                const response = await fetch(`http://localhost:3000/api/user-status/${searchTermUpper}`);
                 if (response.ok) {
                     const data = await response.json();
-                    updateChatList(searchTerm, "Yangi chat", data.status, data.lastSeen, data.username);
-                    lastSearchedId = searchTerm; // Topilganini eslab qolamiz
+                    updateChatList(searchTermUpper, "Yangi chat", data.status, data.lastSeen, data.username);
+                    lastSearchedId = searchTermUpper;
                 }
-            } catch (err) {
-                console.log("Foydalanuvchi topilmadi");
-            }
+            } catch (err) { console.log("ID topilmadi"); }
         }
+    }
+    // B. AGAR TELEFON RAQAM YOZILSA (+998...)
+    else if (phoneRegex.test(searchTerm)) {
+        // Telefon raqami bo'yicha qidirganda bizga baribir foydalanuvchining ID-si kerak
+        try {
+            const response = await fetch(`http://localhost:3000/api/search-user/${encodeURIComponent(searchTerm)}`);
+            const data = await response.json();
+
+            if (data.success) {
+                const user = data.user;
+                // O'zimizni qidirayotgan bo'lsak to'xtatamiz
+                if (user.customId === myId) return;
+
+                const existing = document.getElementById(`chat-${user.customId}`);
+                if (!existing) {
+                    updateChatList(user.customId, "Yangi chat", user.status, user.lastSeen, user.username);
+                    lastSearchedId = user.customId;
+                }
+            }
+        } catch (err) { console.log("Raqam topilmadi"); }
     }
 });
 
@@ -457,7 +494,7 @@ backBtn.addEventListener("click", () => {
     appContainer.classList.remove("chat-open")
 
     // MUHIM QISM: Chatdan chiqqanimizni dasturga bildirish uchun ID ni tozalaymiz
-    currentTargetId = ""; 
+    currentTargetId = "";
     document.getElementById("current-chat-name").innerText = "";
     document.getElementById("status").innerText = "";
 })
@@ -509,6 +546,9 @@ async function loadMyChatList() {
         // 1. FILTR: O'zimizni ro'yxatda ko'rsatmaymiz
         if (user.customId === myId) return;
 
+        // SERVERDAN KELGAN SONNI ESKOQDA SAQLASH
+        unreadMessages[user.customId] = user.unreadCount || 0;
+
         // Har bir kontaktni sidebar-ga qo'shamiz
         const chatItem = document.createElement("div")
         chatItem.className = 'chat-item'
@@ -526,19 +566,35 @@ async function loadMyChatList() {
         // Ism yo'q bo'lsa ID ni ishlatamiz
         const displayName = user.username || user.customId;
 
+        // YANGI: Badge HTML-ni tayyorlash
+        let unreadBadgeHTML = "";
+        if (user.unreadCount > 0) {
+            unreadBadgeHTML = `<span class="unread-badge">${user.unreadCount}</span>`;
+        }
+
         chatItem.innerHTML = `
             <div class="avatar">
                 ${displayName.charAt(0).toUpperCase()}
                 <div class="status-dot ${statusClass}"></div>
             </div>
             <div class="chat-info">
-                <h4>${displayName}</h4>
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <h4>${displayName}</h4>
+                    ${unreadBadgeHTML}
+                </div>
                 <p>${user.lastMessage || "Yangi chat"}</p>
             </div>
         `
 
         // Kontakt bosilganda chat tarixini yuklash
         chatItem.addEventListener("click", () => {
+            // Chat bosilganda badgeni vizual o'chirish
+            const badge = chatItem.querySelector(".unread-badge");
+            if (badge) badge.remove();
+
+            // 2. Serverga "o'qildi" deb xabar berish (Refreshda qaytib chiqmasligi uchun)
+            socket.emit("messages_read", { from: user.customId, to: myId });
+
             // MUHIM: Statusni obyekt ichidan emas, balki sidebar-dagi dumaloqchadan olamiz
             // Chunki dumaloqcha realtime yangilangan, 'user' obyekti esa eskirgan bo'lishi mumkin
             const dot = chatItem.querySelector(".status-dot");

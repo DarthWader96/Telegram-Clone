@@ -34,9 +34,9 @@ app.post('/api/login', async (req, res) => {
                 return res.json({ success: true, customId: user.customId });
             } else {
                 // Raqam bor, lekin ism boshqa. Ruxsat bermaymiz!
-                return res.status(400).json({ 
-                    success: false, 
-                    message: "Bu telefon raqami boshqa ism bilan ro'yxatdan o'tgan!" 
+                return res.status(400).json({
+                    success: false,
+                    message: "Bu telefon raqami boshqa ism bilan ro'yxatdan o'tgan!"
                 });
             }
         } else {
@@ -59,6 +59,31 @@ app.post('/api/login', async (req, res) => {
     } catch (error) {
         console.error("Login xatosi:", error);
         res.status(500).json({ success: false, message: "Serverda xatolik yuz berdi" });
+    }
+});
+
+// Telefon raqami orqali foydalanuvchini qidirish
+app.get('/api/search-user/:phone', async (req, res) => {
+    try {
+        const phone = req.params.phone;
+        // Raqamni bazadan qidiramiz
+        const user = await User.findOne({ phone: phone });
+
+        if (user) {
+            res.json({
+                success: true,
+                user: {
+                    customId: user.customId,
+                    username: user.username,
+                    status: user.status,
+                    lastSeen: user.lastSeen
+                }
+            });
+        } else {
+            res.json({ success: false, message: "Foydalanuvchi topilmadi" });
+        }
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Server xatosi" });
     }
 });
 
@@ -96,13 +121,21 @@ app.get('/api/chat-list/:myId', async (req, res) => {
                 // Sherikning statusini bazadan olamiz
                 const partner = await User.findOne({ customId: partnerId });
 
+                // YANGI: Faqat shu sherikdan MINGA kelgan va O'QILMAGAN xabarlar soni
+                const unreadCount = await Message.countDocuments({
+                    from: partnerId,
+                    to: myId,
+                    isRead: false // <--- Bu yerda isRead bo'ldi
+                });
+
                 chatList.push({
                     customId: partnerId,
                     username: partner ? partner.username : partnerId, // Ismni qo'shdik
                     status: partner ? partner.status : 'offline',
                     lastSeen: partner ? partner.lastSeen : null,
                     lastMessage: msg.text, // Mana shu oxirgi xabar
-                    lastMessageTime: msg.time
+                    lastMessageTime: msg.time,
+                    unreadCount: unreadCount // Buni frontendga uzatamiz
                 });
             }
         }
@@ -116,13 +149,13 @@ app.get('/api/chat-list/:myId', async (req, res) => {
 app.get('/api/user-status/:id', async (req, res) => {
     try {
         const user = await User.findOne({ customId: req.params.id });
-        if(user){
+        if (user) {
             res.json({
                 status: user.status,
                 username: user.username,
                 lastSeen: user.lastSeen
             });
-        }else {
+        } else {
             res.status(404).json({ error: "Topilmadi" });
         }
     } catch (error) {
@@ -146,6 +179,10 @@ io.on("connection", (socket) => {
 
     // Foydalanuvchi tizimga kirganda uni ma'lum bir xonaga (room) qo'shamiz
     socket.on("join_chat", async (userId) => {
+        // HIMOYALASH: Agar ID bo'lmasa yoki "null" matni kelib qolsa, bazaga yozishni to'xtatamiz
+        if (!userId || userId === "null" || userId === "undefined") {
+            return;
+        }
         socket.join(userId)
 
         // Socket obyektiga userId-ni biriktirib qo'yamiz,
@@ -155,13 +192,13 @@ io.on("connection", (socket) => {
         // Bazada statusni 'online' qilish
         await User.findOneAndUpdate(
             { customId: userId },
-            { status: 'online' },
+            { status: "online", lastSeen: new Date().toISOString() },
             { upsert: true, returnDocument: 'after' }
         );
         console.log(`${userId} hozir online`);
 
         // MANA SHU QATOR QO'SHILADI: Hamma chatdagilarga bu odam kirdi deb xabar berish
-        io.emit("user_status_changed", { userId: userId, status: "online" });
+        io.emit("user_status_changed", { userId: userId, status: "online", lastSeen: null });
 
         // Bazada bor-yo'qligini tekshirish
         let user = await User.findOne({ customId: userId })

@@ -9,18 +9,20 @@
 </head>
 
 <body>
-    <div id="login-overlay" class="overlay">
+    <div id="login-overlay" class="overlay" style="display: none;">
         <div class="login-box">
-            <h2>Xush kelibsiz</h2>
-            <input type="text" id="login-name" placeholder="Ismingizni kiriting">
-            <input type="text" id="login-phone" placeholder="+998 90 123 45 67">
+            <h2>Ro'yxatdan o'tish</h2>
+            <input type="text" id="login-name" placeholder="Ismingiz">
+            <input type="text" id="login-phone" placeholder="Telefon raqamingiz (+998...)">
             <button id="login-btn">Kirish</button>
         </div>
     </div>
     <div class="app-container">
         <aside class="sidebar">
             <header class="sidebar-header">
-                <div class="user-id-display">ID: <span id="my-id">...</span></div>
+                <div class="user-id-display">
+                    <span id="my-name">Yuklanmoqda...</span>
+                </div>
                 <input type="text" id="search-input" placeholder="ID orqali qidirish...">
             </header>
             <div class="chat-list" id="chat-list">
@@ -44,9 +46,13 @@
         <main class="main-chat">
             <header class="chat-header">
                 <button id="back-btn" class="mobile-only">←</button>
+                <div id="chat-avatar" class="avatar"
+                    style="width: 40px; height: 40px; margin-right: 10px; background: #2481cc; color: white; display: flex; position: relative;">
+                    <span id="chat-avatar-letter" style="margin: auto;">?</span> <div id="header-status-dot" class="status-dot"></div>
+                </div>
                 <div class="chat-user-info">
-                    <h3 id="current-chat-name">Umumiy Guruh</h3>
-                    <p id="status">online</p>
+                    <h3 id="current-chat-name">...</h3>
+                    <p id="status">offline</p>
                 </div>
             </header>
 

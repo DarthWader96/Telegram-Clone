@@ -17,14 +17,72 @@ let unreadMessages = {} // { "Z-123": 5 } ko'rinishida saqlaymiz
 // 1. Foydalanuvchi uchun vaqtinchalik ID yaratamiz (Zangi-style)
 // Har doim 6 xonali raqam chiqishini ta'minlaymiz
 let myId = localStorage.getItem("myZangiId");
-if (!myId) {
-    const randomNum = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    myId = "Z-" + randomNum;
-    localStorage.setItem("myZangiId", myId);
+let myName = localStorage.getItem("myZangiName");
+
+const loginOverlay = document.getElementById("login-overlay");
+// 1. Login holatini tekshirish
+if (!myId || !myName) {
+    if (loginOverlay) {
+        loginOverlay.style.display = "flex";
+        document.body.classList.add("modal-open"); // Scrollni bloklash
+    }
+} else {
+    const nameElement = document.getElementById("my-name");
+    if (nameElement) {
+        nameElement.innerText = myName;
+    }
 }
 
-// ID-ni ekranda ko'rsatish
-document.getElementById("my-id").innerText = myId
+// 2. IDni faqat terminalda (konsolda) ko'rinadigan qilamiz
+console.log("----------------------------");
+console.log("SIZNING ID-INGIZ: " + myId);
+console.log("----------------------------");
+
+// 2. Login tugmasi bosilganda
+document.getElementById("login-btn").addEventListener("click", async() => {
+    const username = document.getElementById("login-name").value.trim();
+    const phone = document.getElementById("login-phone").value.trim();
+
+    if (username && phone) {
+        try {
+            // 1. Serverga ism va raqamni yuborib tekshiramiz
+            const response = await fetch("http://localhost:3000/api/login", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ username, phone })
+            });
+
+            const data = await response.json();
+
+            // 2. Server javobini tekshiramiz
+            if (data.success) {
+                // Login muvaffaqiyatli! Server bergan ID ni saqlaymiz (Yangi yoki Eski)
+                localStorage.setItem("myZangiId", data.customId);
+                localStorage.setItem("myZangiName", username);
+                
+                // Ekranni yangilaymiz
+                const nameElement = document.getElementById("my-name");
+                if (nameElement) nameElement.innerText = username; 
+                
+                loginOverlay.style.display = "none";
+                document.body.classList.remove("modal-open");
+                
+                // Sahifani qayta yuklab, socketni ulaymiz
+                location.reload(); 
+            } else {
+                // Xatolik (Masalan: Raqam band) - foydalanuvchiga ogohlantirish beramiz
+                alert("Xatolik: " + data.message);
+            }
+        } catch (error) {
+            console.error("Ulanish xatosi:", error);
+            alert("Server bilan ulanib bo'lmadi!");
+        }
+    }else {
+        alert("Iltimos, ism va telefon raqamni to'liq kiriting.");
+    }
+});
 
 // 2. Serverga ulanish va xonaga kirish
 socket.on("connect", () => {
@@ -46,7 +104,7 @@ socket.on("receive_message", (data) => {
     }
 
     // Sidebar-ni yangilash (Xabar + Status bilan)
-    updateChatList(data.from, data.msg, data.status);
+    updateChatList(data.from, data.msg, data.status, null, data.username);
 })
 
 const statusLabel = document.getElementById("status");
@@ -97,13 +155,17 @@ socket.on("user_status_changed", (data) => {
     // 1. Tepada ochiq turgan chat statusini yangilash
     if (currentTargetId === data.userId) {
         const statusLabel = document.getElementById("status");
+        const headerDot = document.getElementById("header-status-dot");
+
         if (data.status === "online") {
             statusLabel.innerText = "online";
             statusLabel.style.color = "#2481cc";
+            headerDot.className = "status-dot status-online";
         } else {
             // Realtime offline bo'lganda vaqtni darhol yangilash
             statusLabel.innerText = formatLastSeen(data.lastSeen || new Date());
             statusLabel.style.color = "#888";
+            headerDot.className = "status-dot status-offline";
         }
     }
 });
@@ -165,12 +227,19 @@ function displayMessage(text, type, senderId, msgTime = new Date(), isRead = fal
 let lastSearchedId = null; // Qidiruvda topilgan vaqtinchalik IDni eslab qolish uchun
 
 // Funksiya endi async bo'ldi
-function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) {
+function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, userName = null) {
     // AGAR BU O'ZIM BO'LSAM, RO'YXATGA QO'SHMASLIK
     if (userId === myId) return;
 
     const chatList = document.getElementById("chat-list")
     const existingItem = document.getElementById(`chat-${userId}`)
+
+    // Ismni aniqlash: argumentdan, elementdan yoki IDdan
+    let displayName = userName;
+    if (!displayName && existingItem) {
+        displayName = existingItem.querySelector("h4").innerText;
+    }
+    if (!displayName) displayName = userId;
 
     // MUHIM O'ZGARIŞ: Agar bu yangi odam bo'lsa va hali xabar kelmagan bo'lsa (faqat status o'zgargan bo'lsa),
     // uni ro'yxatga qo'shmaymiz.
@@ -192,6 +261,7 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) 
     if (existingItem) {
         // Oxirgi xabarni yangilash (agar berilgan bo'lsa)
         if (lastMsg) existingItem.querySelector("p").innerText = lastMsg;
+        existingItem.querySelector("h4").innerText = displayName;
 
         // STATUSNI yangilash (Eng muhim joyi!)
         if (status) {
@@ -236,11 +306,11 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null) 
     // HTML ichiga status-dot ni dinamik status bilan qo'shdik
     chatItem.innerHTML = `
             <div class="avatar">
-                ${userId.charAt(2)}
+                ${displayName.charAt(0).toUpperCase()}
                 <div class="status-dot status-${initialStatus}"></div>
             </div>
             <div class="chat-info">
-                <h4>${userId}</h4>
+                <h4>${displayName}</h4>
                 <p>${lastMsg}</p>
                 ${countHTML}
             </div>
@@ -285,7 +355,28 @@ function handleChatClick(element, userId) {
     const badge = element.querySelector(".unread-badge");
     if (badge) badge.remove();
 
-    document.getElementById("current-chat-name").innerText = "ID: " + userId;
+    // 1. Ismni va Avatardagi harfni yangilash
+    const userName = element.querySelector("h4").innerText;
+    document.getElementById("current-chat-name").innerText = userName;
+    document.getElementById("chat-avatar-letter").innerText = userName.charAt(0).toUpperCase();
+
+    // 2. Status yozuvi va Nuqta rangini yangilash
+    const sidebarDot = element.querySelector(".status-dot");
+    const statusLabel = document.getElementById("status");
+    const headerDot = document.getElementById("header-status-dot");
+
+    if (sidebarDot.classList.contains("status-online")) {
+        statusLabel.innerText = "online";
+        statusLabel.style.color = "#2481cc";
+        headerDot.className = "status-dot status-online"; // Yashil rang
+    } else {
+        const lastSeen = element.getAttribute("data-lastseen");
+        statusLabel.innerText = formatLastSeen(lastSeen);
+        statusLabel.style.color = "#888";
+        headerDot.className = "status-dot status-offline"; // Kulrang
+    }
+
+
     document.querySelectorAll(".chat-item").forEach(i => i.classList.remove("active"));
     element.classList.add("active");
 
@@ -351,7 +442,7 @@ searchInput.addEventListener("input", async (e) => {
                 const response = await fetch(`http://localhost:3000/api/user-status/${searchTerm}`);
                 if (response.ok) {
                     const data = await response.json();
-                    updateChatList(searchTerm, "Yangi chat", data.status, data.lastSeen);
+                    updateChatList(searchTerm, "Yangi chat", data.status, data.lastSeen, data.username);
                     lastSearchedId = searchTerm; // Topilganini eslab qolamiz
                 }
             } catch (err) {
@@ -432,13 +523,16 @@ async function loadMyChatList() {
         // Statusga qarab klass tanlaymiz
         const statusClass = user.status === 'online' ? 'status-online' : 'status-offline';
 
+        // Ism yo'q bo'lsa ID ni ishlatamiz
+        const displayName = user.username || user.customId;
+
         chatItem.innerHTML = `
             <div class="avatar">
-                ${user.customId.charAt(2)}
+                ${displayName.charAt(0).toUpperCase()}
                 <div class="status-dot ${statusClass}"></div>
             </div>
             <div class="chat-info">
-                <h4>${user.customId}</h4>
+                <h4>${displayName}</h4>
                 <p>${user.lastMessage || "Yangi chat"}</p>
             </div>
         `

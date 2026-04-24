@@ -19,6 +19,48 @@ const io = new Server(server, {
     }
 })
 
+// FOYDALANUVCHINI TEKSHIRISH VA LOGIN QILISH
+app.post('/api/login', async (req, res) => {
+    const { username, phone } = req.body;
+
+    try {
+        // 1. Bazadan shu telefon raqamini qidiramiz
+        let user = await User.findOne({ phone: phone });
+
+        if (user) {
+            // 2. Agar raqam topilsa, ismni tekshiramiz
+            if (user.username === username) {
+                // Ism va raqam mos keldi! Unga o'zining eski ID sini qaytaramiz
+                return res.json({ success: true, customId: user.customId });
+            } else {
+                // Raqam bor, lekin ism boshqa. Ruxsat bermaymiz!
+                return res.status(400).json({ 
+                    success: false, 
+                    message: "Bu telefon raqami boshqa ism bilan ro'yxatdan o'tgan!" 
+                });
+            }
+        } else {
+            // 3. Agar raqam umuman yo'q bo'lsa, YANGI foydalanuvchi yaratamiz
+            const randomNum = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+            const generatedId = "Z-" + randomNum;
+
+            user = new User({
+                username: username,
+                phone: phone,      // <-- Modelda 'phone' maydoni bo'lishi kerak
+                customId: generatedId,
+                status: 'online',
+                lastSeen: new Date()
+            });
+            await user.save();
+
+            // Yangi yaratilgan ID ni qaytaramiz
+            return res.json({ success: true, customId: generatedId });
+        }
+    } catch (error) {
+        console.error("Login xatosi:", error);
+        res.status(500).json({ success: false, message: "Serverda xatolik yuz berdi" });
+    }
+});
 
 app.get('/api/messages/:from/:to', async (req, res) => {
     const { from, to } = req.params
@@ -56,6 +98,7 @@ app.get('/api/chat-list/:myId', async (req, res) => {
 
                 chatList.push({
                     customId: partnerId,
+                    username: partner ? partner.username : partnerId, // Ismni qo'shdik
                     status: partner ? partner.status : 'offline',
                     lastSeen: partner ? partner.lastSeen : null,
                     lastMessage: msg.text, // Mana shu oxirgi xabar
@@ -73,7 +116,15 @@ app.get('/api/chat-list/:myId', async (req, res) => {
 app.get('/api/user-status/:id', async (req, res) => {
     try {
         const user = await User.findOne({ customId: req.params.id });
-        res.json({ status: user ? user.status : 'offline' });
+        if(user){
+            res.json({
+                status: user.status,
+                username: user.username,
+                lastSeen: user.lastSeen
+            });
+        }else {
+            res.status(404).json({ error: "Topilmadi" });
+        }
     } catch (error) {
         res.status(500).json({ status: 'offline' });
     }
@@ -121,6 +172,24 @@ io.on("connection", (socket) => {
         }
     })
 
+    // user_register eventini qo'shish
+    socket.on("user_register", async (data) => {
+        try {
+            await User.findOneAndUpdate(
+                { phone: data.phone },
+                {
+                    username: data.username,
+                    customId: data.customId,
+                    status: 'online'
+                },
+                { upsert: true }
+            );
+            console.log("Yangi foydalanuvchi:", data.username);
+        } catch (err) {
+            console.error("Xato:", err);
+        }
+    });
+
     // Xabar yuborish
     socket.on("send_message", async (data) => {
         try {
@@ -133,11 +202,13 @@ io.on("connection", (socket) => {
             })
             await newMessage.save()
 
-
+            // 2. Yuboruvchining ismini bazadan topamiz (YANGI QO'SHILGAN QATOR)
+            const sender = await User.findOne({ customId: data.from });
 
             // Qabul qiluvchiga xabar bilan birga yuboruvchining statusini ham beramiz
             io.to(data.to).emit("receive_message", {
                 from: data.from,
+                username: sender ? sender.username : data.from, // Ismni qo'shdik
                 msg: data.msg,
                 time: newMessage.time,
                 status: 'online' // Statusni qo'shdik
@@ -158,7 +229,7 @@ io.on("connection", (socket) => {
                 { from: data.from, to: data.to, isRead: false },
                 { $set: { isRead: true } }
             );
-            
+
             // Xabarni yuborgan odamga (sherigimizga) "xabarlaring o'qildi" deb xabar beramiz
             io.to(data.from).emit("messages_marked_read", { by: data.to });
         } catch (err) {

@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "copy":"npx cap copy",
+    "sync":"npx cap sync",
+    "android":"npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1"
+  }
+}

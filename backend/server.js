@@ -7,6 +7,7 @@ const Message = require("./models/Message")
 const User = require("./models/User")
 require("dotenv").config()
 
+
 const app = express()
 app.use(cors())
 app.use(express.json())
@@ -308,6 +309,6 @@ io.on("connection", (socket) => {
 })
 
 const PORT = process.env.PORT || 3000
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server ${PORT}-portda ishlamoqda...`)
 })

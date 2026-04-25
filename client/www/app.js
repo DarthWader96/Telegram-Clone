@@ -1,5 +1,21 @@
+const LOCAL_IP = "192.168.0.107"; 
+let SERVER_URL;
+
+// Agar Capacitor (mobil ilova) ichida bo'lsak, har doim IP-ni ishlatamiz
+if (window.location.origin.includes('localhost') && !window.location.port) {
+    // Mobil ilova muhiti (Capacitor odatda port ishlatmaydi yoki https://localhost bo'ladi)
+    SERVER_URL = `http://${LOCAL_IP}:3000`;
+} else {
+    // Desktop brauzer muhiti
+    SERVER_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+        ? "http://localhost:3000"
+        : `http://${LOCAL_IP}:3000`;
+}
+
+console.log("Ulanish manzili:", SERVER_URL);
+const socket = io(SERVER_URL);
 // Server manzili (Localda bo'lsa 3000-port)
-const socket = io("http://localhost:3000")
+// const socket = io("http://localhost:3000")
 
 // Elementlarni tanlab olamiz
 const chatItems = document.querySelectorAll(".chat-item")
@@ -51,7 +67,7 @@ document.getElementById("login-btn").addEventListener("click", async () => {
     if (username && phone) {
         try {
             // 1. Serverga ism va raqamni yuborib tekshiramiz
-            const response = await fetch("http://localhost:3000/api/login", {
+            const response = await fetch(`${SERVER_URL}/api/login`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
@@ -401,7 +417,7 @@ function handleChatClick(element, userId) {
 async function loadChatHistory(targetId) {
     messagesContainer.innerHTML = "" // Avvalgi xabarlarni tozalash
 
-    const response = await fetch(`http://localhost:3000/api/messages/${myId}/${targetId}`)
+    const response = await fetch(`${SERVER_URL}/api/messages/${myId}/${targetId}`)
     const messages = await response.json()
 
     messages.forEach(m => {
@@ -458,7 +474,7 @@ searchInput.addEventListener("input", async (e) => {
         const existing = document.getElementById(`chat-${searchTermUpper}`);
         if (!existing) {
             try {
-                const response = await fetch(`http://localhost:3000/api/user-status/${searchTermUpper}`);
+                const response = await fetch(`${SERVER_URL}/api/user-status/${searchTermUpper}`);
                 if (response.ok) {
                     const data = await response.json();
                     updateChatList(searchTermUpper, "Yangi chat", data.status, data.lastSeen, data.username);
@@ -471,7 +487,7 @@ searchInput.addEventListener("input", async (e) => {
     else if (phoneRegex.test(searchTerm)) {
         // Telefon raqami bo'yicha qidirganda bizga baribir foydalanuvchining ID-si kerak
         try {
-            const response = await fetch(`http://localhost:3000/api/search-user/${encodeURIComponent(searchTerm)}`);
+            const response = await fetch(`${SERVER_URL}/api/search-user/${encodeURIComponent(searchTerm)}`);
             const data = await response.json();
 
             if (data.success) {
@@ -536,7 +552,7 @@ window.addEventListener("DOMContentLoaded", () => {
 })
 
 async function loadMyChatList() {
-    const response = await fetch(`http://localhost:3000/api/chat-list/${myId}`)
+    const response = await fetch(`${SERVER_URL}/api/chat-list/${myId}`)
     const contacts = await response.json()
 
     const chatListElement = document.getElementById('chat-list')

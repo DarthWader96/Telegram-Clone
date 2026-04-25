@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TelegramClone</string>
+    <string name="title_activity_main">TelegramClone</string>
+    <string name="package_name">com.telegram.clone</string>
+    <string name="custom_url_scheme">com.telegram.clone</string>
+</resources>

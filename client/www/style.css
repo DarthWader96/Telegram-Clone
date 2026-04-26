@@ -161,15 +161,21 @@ body.modal-open {
     gap: 10px;
 }
 
-/* Xabar pufakchalari (bubbles) */
+/* --- YANGILANGAN XABAR VA RASM DIZAYNI --- */
 .message {
-    max-width: 60%;
-    padding: 10px;
-    border-radius: 10px;
+    max-width: 70%;
+    padding: 8px 10px;
+    border-radius: 12px;
     position: relative;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.4;
+    display: flex;
+    flex-direction: column; /* Matn, rasm, vaqt tagma-tag tushadi */
+    word-wrap: break-word;
 }
+
+/* Matnli qism */
+.text-content { margin-bottom: 2px; }
 
 .message.received {
     align-self: flex-start;
@@ -191,9 +197,9 @@ body.modal-open {
 
 /* Input qismi */
 .input-area {
+    display: none;
     padding: 15px;
-    background: white;
-    display: flex;
+    background: #fff;
     gap: 10px;
 }
 
@@ -292,6 +298,125 @@ body.modal-open {
     gap: 2px;
 }
 
+
+/* Image Preview Footerda */
+#image-preview-container {
+    position: absolute;
+    bottom: 65px;
+    left: 0;
+    width: 100%;
+    background: #f4f4f4;
+    padding: 10px;
+    border-top: 1px solid #ddd;
+    display: flex;
+    z-index: 10;
+}
+.preview-box { position: relative; }
+#image-preview-img { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; }
+#cancel-image-btn {
+    position: absolute; top: -5px; right: -5px;
+    background: rgba(0,0,0,0.5); color: white; border: none;
+    border-radius: 50%; cursor: pointer;
+}
+
+/* Full Screen Viewer */
+.viewer-modal {
+    position: fixed; z-index: 5000; left: 0; top: 0;
+    width: 100%; height: 100%; background: rgba(0,0,0,0.95);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.viewer-content { max-width: 95%; max-height: 80%; border-radius: 5px; object-fit: contain; }
+.close-viewer { position: absolute; top: 20px; right: 25px; color: white; font-size: 35px; cursor: pointer; }
+.viewer-actions { margin-top: 20px; }
+.download-btn { background: #2481cc; color: white; padding: 10px 20px; border-radius: 20px; text-decoration: none; }
+
+/* Rasm ramkasi */
+.image-container {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    display: inline-block; /* Rasm o'lchamiga moslashib qisqaradi */
+    max-width: 100%;
+}
+
+/* Yuklanishdan oldingi xira va kvadrat holat */
+.image-container.blurred {
+    width: 200px;
+    height: 200px;
+    background: #c3c3c3;
+}
+
+/* Rasmning o'zi */
+.chat-image {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    object-fit: cover;
+    cursor: pointer;
+}
+
+.chat-image.hidden {
+    display: none; /* Yuklanmaguncha yashirib turamiz */
+}
+
+/* Yuklab olish tugmasi qatlami */
+.download-placeholder {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    z-index: 5;
+}
+
+.download-circle {
+    width: 50px; height: 50px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: bold;
+}
+
+/* Rasm tagidagi izoh */
+.image-caption {
+    margin-top: 5px;
+    font-size: 15px;
+    padding-bottom: 2px;
+}
+
+/* Vaqt qatori doim o'ng tomonda */
+.time-container {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 2px;
+}
+
+/* Vaqt va pichkani to'g'rilash (yoniga emas, doim tagida turishi uchun) */
+.message-footer {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-top: 4px;
+    font-size: 11px;
+    color: rgba(0, 0, 0, 0.5);
+}
+
+.message.sent .message-footer {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+
+/* Oddiy spinner */
+.spinner {
+    width: 30px; height: 30px;
+    border: 3px solid rgba(255,255,255,0.3);
+    border-top: 3px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
 /* ================ Responsive Media ================== */
 /* Mobil qurilmalar uchun (max-width: 768px) */

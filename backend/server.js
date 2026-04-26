@@ -1,3 +1,4 @@
+require("dotenv").config()
 const express = require("express")
 const http = require("http")
 const { Server } = require("socket.io")
@@ -5,7 +6,9 @@ const mongoose = require("mongoose")
 const cors = require("cors")
 const Message = require("./models/Message")
 const User = require("./models/User")
-require("dotenv").config()
+const multer = require('multer');
+const path = require('path');
+
 
 const app = express()
 app.use(cors())
@@ -18,6 +21,28 @@ const io = new Server(server, {
         methods: ["GET", "POST"]
     }
 })
+
+// Rasmlar saqlanadigan joy
+const storage = multer.diskStorage({
+    destination: './public/uploads/',
+    filename: function (req, file, cb) {
+        cb(null, 'IMG-' + Date.now() + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({ storage: storage });
+
+// Rasmlarni brauzerda ko'rish uchun "public" papkasini ochiq qilish
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
+
+// Faylni qabul qilish API-si
+app.post('/api/upload', upload.single('file'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Fayl yuklanmadi" });
+
+    // Faylning serverdagi manzili
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ success: true, fileUrl: fileUrl });
+});
 
 // FOYDALANUVCHINI TEKSHIRISH VA LOGIN QILISH
 app.post('/api/login', async (req, res) => {
@@ -134,6 +159,7 @@ app.get('/api/chat-list/:myId', async (req, res) => {
                     status: partner ? partner.status : 'offline',
                     lastSeen: partner ? partner.lastSeen : null,
                     lastMessage: msg.text, // Mana shu oxirgi xabar
+                    lastMessageType: msg.fileType, // <--- MANA SHU YER QO'SHILDI
                     lastMessageTime: msg.time,
                     unreadCount: unreadCount // Buni frontendga uzatamiz
                 });
@@ -183,11 +209,12 @@ io.on("connection", (socket) => {
         if (!userId || userId === "null" || userId === "undefined") {
             return;
         }
-        socket.join(userId)
 
         // Socket obyektiga userId-ni biriktirib qo'yamiz,
         // keyinchalik disconnect bo'lganda kim chiqib ketganini bilish uchun
         socket.customId = userId
+        socket.join(userId)
+        console.log(`${userId} hozir online`);
 
         // Bazada statusni 'online' qilish
         await User.findOneAndUpdate(
@@ -195,10 +222,10 @@ io.on("connection", (socket) => {
             { status: "online", lastSeen: new Date().toISOString() },
             { upsert: true, returnDocument: 'after' }
         );
-        console.log(`${userId} hozir online`);
 
         // MANA SHU QATOR QO'SHILADI: Hamma chatdagilarga bu odam kirdi deb xabar berish
         io.emit("user_status_changed", { userId: userId, status: "online", lastSeen: null });
+
 
         // Bazada bor-yo'qligini tekshirish
         let user = await User.findOne({ customId: userId })
@@ -234,7 +261,9 @@ io.on("connection", (socket) => {
             const newMessage = new Message({
                 from: data.from,
                 to: data.to,
-                text: data.msg,
+                text: data.msg || "",             // Matn
+                fileUrl: data.fileUrl || null,    // YANGI: Rasm/Video manzili
+                fileType: data.type || "text",    // YANGI: Fayl turi
                 time: new Date()
             })
             await newMessage.save()
@@ -247,13 +276,15 @@ io.on("connection", (socket) => {
                 from: data.from,
                 username: sender ? sender.username : data.from, // Ismni qo'shdik
                 msg: data.msg,
+                fileUrl: data.fileUrl,            // YANGI
+                type: data.type || "text",        // YANGI
                 time: newMessage.time,
                 status: 'online' // Statusni qo'shdik
             });
 
             console.log("Xabar bazaga saqlandi!")
         } catch (error) {
-            console.error("Xabarni saqlashda xatolik:", err)
+            console.error("Xabarni saqlashda xatolik:", error)
         }
     })
 
@@ -308,6 +339,6 @@ io.on("connection", (socket) => {
 })
 
 const PORT = process.env.PORT || 3000
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server ${PORT}-portda ishlamoqda...`)
 })

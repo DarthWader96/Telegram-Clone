@@ -1,0 +1,9 @@
+{
+  "appId": "com.telegram.cloneapp",
+  "appName": "TelegramClone",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}

@@ -1,5 +1,21 @@
+const LOCAL_IP = "192.168.0.107";
+let SERVER_URL;
+
+// Agar Capacitor (mobil ilova) ichida bo'lsak, har doim IP-ni ishlatamiz
+if (window.location.origin.includes('localhost') && !window.location.port) {
+    // Mobil ilova muhiti (Capacitor odatda port ishlatmaydi yoki https://localhost bo'ladi)
+    SERVER_URL = `http://${LOCAL_IP}:3000`;
+} else {
+    // Desktop brauzer muhiti
+    SERVER_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+        ? "http://localhost:3000"
+        : `http://${LOCAL_IP}:3000`;
+}
+
+console.log("Ulanish manzili:", SERVER_URL);
+const socket = io(SERVER_URL);
 // Server manzili (Localda bo'lsa 3000-port)
-const socket = io("http://localhost:3000")
+// const socket = io("http://localhost:3000")
 
 // Elementlarni tanlab olamiz
 const chatItems = document.querySelectorAll(".chat-item")
@@ -10,9 +26,12 @@ const messagesContainer = document.getElementById("messages")
 const msgInput = document.getElementById("msg-input")
 const sendBtn = document.getElementById("send-btn")
 const searchInput = document.getElementById('search-input');
+const fileInput = document.getElementById('file-input');
+const attachBtn = document.getElementById('attach-btn');
 
 let currentTargetId = ""; // Xabar yubormoqchi bo'lgan odamimizning ID-si
 let unreadMessages = {} // { "Z-123": 5 } ko'rinishida saqlaymiz
+
 
 // 1. Foydalanuvchi uchun vaqtinchalik ID yaratamiz (Zangi-style)
 // Har doim 6 xonali raqam chiqishini ta'minlaymiz
@@ -51,7 +70,7 @@ document.getElementById("login-btn").addEventListener("click", async () => {
     if (username && phone) {
         try {
             // 1. Serverga ism va raqamni yuborib tekshiramiz
-            const response = await fetch("http://localhost:3000/api/login", {
+            const response = await fetch(`${SERVER_URL}/api/login`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
@@ -89,6 +108,8 @@ document.getElementById("login-btn").addEventListener("click", async () => {
     }
 });
 
+
+
 // 2. Serverga ulanish va xonaga kirish
 socket.on("connect", () => {
     console.log("Serverga ulandik! ID:", socket.id)
@@ -102,15 +123,35 @@ socket.on("receive_message", (data) => {
     // 1. FAQAT o'sha odam bilan chat ochiq bo'lsa xabarni ko'rsatamiz
     if (currentTargetId === data.from) {
         // 1. Chat ochiq bo'lgani uchun darhol serverga o'qildi deb bildiramiz
-        socket.emit("messages_read", { from: data.from, to: myId });
 
-        // 2. Xabarni ekranda ko'rsatamiz
-        displayMessage(data.msg, "received", data.from, data.time)
+        // Agar rasm bo'lsa fileUrl-ni, bo'lmasa matnni yuboramiz
+        const content = data.fileUrl || data.msg;
+        displayMessage(content, "received", data.from, data.time, false, data.type, data.msg);
+
+        socket.emit("messages_read", { from: data.from, to: myId });
+        scrollToBottom(); // Yangi xabar kelganda pastga tushish
     }
 
-    // Sidebar-ni yangilash (Xabar + Status bilan)
-    updateChatList(data.from, data.msg, data.status, null, data.username);
+    // 2. Sidebar statusini realtime yangilash
+    // BU YERDA: data.type 'image' bo'lsa "Foto", 'text' bo'lsa data.msg chiqadi
+    let statusMsg = (data.type === 'image') ? "📸 Foto" : data.msg;
+
+    // Sidebar-ni yangilash
+    updateChatList(data.from, statusMsg, data.status, data.time, data.username, data.type);
+    
+    // Sidebar-da eng tepaga chiqarish (ID bo'yicha topish xavfsizroq)
+    const chatItem = document.getElementById(`chat-${data.from}`);
+    if (chatItem) {
+        document.getElementById('chat-list').prepend(chatItem);
+    }
 })
+
+function scrollToBottom() {
+    const messagesContainer = document.getElementById("messages");
+    if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+}
 
 const statusLabel = document.getElementById("status");
 
@@ -143,10 +184,17 @@ socket.on("user_stop_typing", (data) => {
     if (item) {
         const p = item.querySelector("p");
         const oldMsg = item.getAttribute("data-old-msg");
-        if (oldMsg) {
-            p.innerText = oldMsg;
-            p.style.color = "#000"; // Asl rangiga qaytarish
+        // SHART: Faqat matn hali ham "yozmoqda..." bo'lsagina eski xabarni qaytaramiz
+        // Agar u allaqachon yangi xabarga o'zgarib ketgan bo'lsa, tegmaymiz
+        if (p.innerText === "yozmoqda...") {
+            if (oldMsg) {
+                p.innerText = oldMsg;
+            }
+            p.style.color = "#000"; // Rangni qaytarish
         }
+        
+        // Jarayon tugadi, vaqtincha saqlangan matnni o'chiramiz
+        item.removeAttribute("data-old-msg");
     }
 });
 
@@ -201,7 +249,7 @@ msgInput.addEventListener("input", () => {
 });
 
 // Xabarni ekranda ko'rsatish uchun alohida funksiya
-function displayMessage(text, type, senderId, msgTime = new Date(), isRead = false) {
+function displayMessage(content, type, senderId, msgTime = new Date(), isRead = false, fileType = 'text', caption = "") {
     const dateObj = new Date(msgTime) // Bazadagi vaqtni yoki hozirgi vaqtni oladi
     const time = dateObj.getHours() + ":" + dateObj.getMinutes().toString().padStart(2, "0")
 
@@ -217,21 +265,51 @@ function displayMessage(text, type, senderId, msgTime = new Date(), isRead = fal
         `;
     }
 
-    const messageHTML = `
-        <div class="message ${type}">
-            <p>${text}</p>
+    let innerHTML = "";
+
+    if (fileType === 'image') {
+        const imgId = "img-" + Math.random().toString(36).substr(2, 9);
+        const fullUrl = `${SERVER_URL}${content}`;
+
+        innerHTML = `
+            <div class="image-container blurred" id="container-${imgId}">
+                <img src="${fullUrl}" class="chat-image hidden" id="${imgId}" onclick="openViewer('${fullUrl}')">
+                
+                <div class="download-placeholder" id="btn-${imgId}" onclick="downloadToView('${imgId}', '${fullUrl}')">
+                    <div class="download-circle">↓</div>
+                </div>
+            </div>
+            ${caption ? `<p class="image-caption">${caption}</p>` : ''}
+            <div class="time-container">
+                <span class="time">${time} ${ticksHTML}</span>
+            </div>
+        `;
+    }
+    // ODDIY MATN
+    else {
+        // Agar oddiy matn bo'lsa
+        innerHTML = `
+            <p class="text-content">${content}</p>
             <span class="time">${time} ${ticksHTML}</span>
-        </div>
-    `
+        `;
+    }
+
+    const messageHTML = `<div class="message ${type}">${innerHTML}</div>`;
 
     messagesContainer.innerHTML += messageHTML
     messagesContainer.scrollTop = messagesContainer.scrollHeight
 }
 
+// Yangi: Faylni yangi oynada ochish funksiyasi
+function openFile(url) {
+    // SERVER_URL global o'zgaruvchidan olinadi
+    window.open(`${SERVER_URL}${url}`, '_blank');
+}
+
 let lastSearchedId = null; // Qidiruvda topilgan vaqtinchalik IDni eslab qolish uchun
 
 // Funksiya endi async bo'ldi
-function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, userName = null) {
+function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, userName = null, fileType = 'text') {
     // AGAR BU O'ZIM BO'LSAM, RO'YXATGA QO'SHMASLIK
     if (userId === myId) return;
 
@@ -251,6 +329,14 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, 
         return;
     }
 
+    // Matnni aniqlash
+    let displayMsg = lastMsg;
+    if (fileType === 'image' || (lastMsg && lastMsg.includes('/uploads/'))) {
+        displayMsg = "📸 Foto";
+    } else if (!lastMsg || lastMsg === "Yangi chat") {
+        displayMsg = "Xabarlar yo'q";
+    }
+
     // --- MUHIM O'ZGARISH SHU YERDA ---
     // Faqat yangi xabar kelgandagina va chat ochiq bo'lmagandagina sanaymiz
     if (lastMsg !== null && lastMsg !== "Yangi chat") {
@@ -268,9 +354,15 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, 
 
     // Agar bu odam ro'yxatda bo'lsa, uni shunchaki tepaga suramiz
     if (existingItem) {
+        const p = existingItem.querySelector("p");
         // Oxirgi xabarni yangilash (agar berilgan bo'lsa)
         if (lastMsg && lastMsg !== "Yangi chat") {
-            existingItem.querySelector("p").innerText = lastMsg;
+            // Xabar kelganda matnni yangilaymiz
+            p.innerText = displayMsg;
+            p.style.color = "#000"; // Rangni qora holiga qaytaramiz
+
+            // MUHIM: Xabar keldi, demak endi saqlangan "eski xabar" dolzarb emas
+            existingItem.removeAttribute("data-old-msg");
         }
         existingItem.querySelector("h4").innerText = displayName;
 
@@ -309,6 +401,7 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, 
     const chatItem = document.createElement("div");
     chatItem.className = "chat-item";
     chatItem.id = `chat-${userId}`;
+    chatItem.setAttribute("data-id", userId);
 
     // Vaqtni boshlang'ich qiymat bilan biriktirib qo'yamiz
     chatItem.setAttribute("data-lastseen", lastSeen || new Date().toISOString());
@@ -324,7 +417,7 @@ function updateChatList(userId, lastMsg = null, status = null, lastSeen = null, 
                     <h4>${displayName}</h4>
                 ${countHTML}
                 </div>
-                <p>${lastMsg}</p>
+                <p>${displayMsg}</p>
             </div>
         `;
 
@@ -362,6 +455,13 @@ function notifyRead(partnerId) {
 // Takrorlanishni kamaytirish uchun Click funksiyasi
 function handleChatClick(element, userId) {
     currentTargetId = userId;
+
+    // Footer (yozish joyi) ni topamiz va ko'rsatamiz
+    const footer = document.querySelector('.input-area');
+    if (footer) {
+        footer.style.display = 'flex'; // Endi ko'rinadi
+    }
+
     unreadMessages[userId] = 0; // Raqamni nolga tushirish
 
     const badge = element.querySelector(".unread-badge");
@@ -401,13 +501,17 @@ function handleChatClick(element, userId) {
 async function loadChatHistory(targetId) {
     messagesContainer.innerHTML = "" // Avvalgi xabarlarni tozalash
 
-    const response = await fetch(`http://localhost:3000/api/messages/${myId}/${targetId}`)
+    const response = await fetch(`${SERVER_URL}/api/messages/${myId}/${targetId}`)
     const messages = await response.json()
 
-    messages.forEach(m => {
-        const type = (m.from === myId) ? 'sent' : 'received'
-        displayMessage(m.text, type, m.from, m.time, m.isRead)
-    })
+    // loadChatHistory funksiyasi ichidagi foreach ni shunga almashtiring:
+    messages.forEach(msg => {
+        const type = (msg.from === myId) ? "sent" : "received";
+        const content = (msg.fileType === 'image') ? msg.fileUrl : msg.text;
+
+        // Oxirgi parametr msg.text rasmning tagidagi matn (caption) bo'lib boradi
+        displayMessage(content, type, msg.from, msg.time, msg.isRead, msg.fileType, msg.text);
+    });
 }
 
 
@@ -458,7 +562,7 @@ searchInput.addEventListener("input", async (e) => {
         const existing = document.getElementById(`chat-${searchTermUpper}`);
         if (!existing) {
             try {
-                const response = await fetch(`http://localhost:3000/api/user-status/${searchTermUpper}`);
+                const response = await fetch(`${SERVER_URL}/api/user-status/${searchTermUpper}`);
                 if (response.ok) {
                     const data = await response.json();
                     updateChatList(searchTermUpper, "Yangi chat", data.status, data.lastSeen, data.username);
@@ -471,7 +575,7 @@ searchInput.addEventListener("input", async (e) => {
     else if (phoneRegex.test(searchTerm)) {
         // Telefon raqami bo'yicha qidirganda bizga baribir foydalanuvchining ID-si kerak
         try {
-            const response = await fetch(`http://localhost:3000/api/search-user/${encodeURIComponent(searchTerm)}`);
+            const response = await fetch(`${SERVER_URL}/api/search-user/${encodeURIComponent(searchTerm)}`);
             const data = await response.json();
 
             if (data.success) {
@@ -497,6 +601,11 @@ backBtn.addEventListener("click", () => {
     currentTargetId = "";
     document.getElementById("current-chat-name").innerText = "";
     document.getElementById("status").innerText = "";
+    // Footerni yana yashiramiz
+    const footer = document.querySelector('.input-area');
+    if (footer) {
+        footer.style.display = 'none';
+    }
 })
 
 // 3. Xabar yuborish funksiyasi
@@ -520,8 +629,94 @@ function sendMessage() {
     msgInput.value = "";
 }
 
-// Tugmaga bosganda yuborish
-sendBtn.addEventListener("click", sendMessage)
+let tempFile = null; // Tanlangan faylni vaqtincha saqlash
+
+// 1. Faylni tanlash
+document.getElementById('attach-btn').onclick = () => fileInput.click();
+
+// 1. Fayl tanlanganda faqat preview ko'rsatamiz
+fileInput.onchange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        tempFile = file;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            document.getElementById('image-preview-img').src = ev.target.result;
+            document.getElementById('image-preview-container').style.display = 'flex';
+        };
+        reader.readAsDataURL(file);
+    }
+};
+
+// 2. Yuborish (Send) tugmasi
+sendBtn.onclick = async (e) => {
+    if (e) e.preventDefault(); // Sahifa yangilanib ketishini to'xtatadi
+
+    // 1. Agar hech kim tanlanmagan bo'lsa, funksiyani to'xtatish
+    if (!currentTargetId) {
+        console.warn("Hech kim tanlanmagan!");
+        // Perfeksionistlar uchun: foydalanuvchiga bildirishnoma berish mumkin
+        alert("Iltimos, avval kim bilan gaplashishni tanlang.");
+        return;
+    }
+
+    const text = msgInput.value.trim();
+    if (!text && !tempFile) return;
+
+    let fileUrl = null;
+    let fileType = 'text';
+
+    // Agar rasm tanlangan bo'lsa, avval uni serverga yuklaymiz
+    if (tempFile) {
+        const formData = new FormData();
+        formData.append('file', tempFile);
+        const res = await fetch(`${SERVER_URL}/api/upload`, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.success) {
+            fileUrl = data.fileUrl;
+            fileType = 'image';
+        }
+    }
+
+    const msgData = {
+        from: myId,
+        to: currentTargetId,
+        msg: text, // Matn va rasm birga!
+        fileUrl: fileUrl,
+        type: fileType,
+        time: new Date().toISOString()
+    };
+
+    socket.emit('send_message', msgData);
+
+    // Ekranda ko'rsatish (Rasm bo'lsa rasm manzilini, bo'lmasa matnni)
+    displayMessage(fileUrl || text, 'sent', myId, msgData.time, false, fileType, text);
+
+    // --- SIDEBAR-NI TO'G'RI YANGILASH ---
+    // Agar rasm bo'lsa "Foto", matn bo'lsa matnni o'zini chiqaramiz
+    let sidebarText = (fileType === 'image') ? "📸 Foto" : text;
+    
+    updateChatList(currentTargetId, sidebarText, "online", msgData.time, null, fileType);
+    scrollToBottom();
+
+    // Tozalash
+    tempFile = null;
+    msgInput.value = "";
+    document.getElementById('image-preview-container').style.display = 'none';
+};
+
+
+// 3. Rasm ko'rish (Viewer) funksiyasi
+function openViewer(url) {
+    const modal = document.getElementById('image-viewer');
+    modal.style.display = 'flex';
+    document.getElementById('full-image').src = url;
+}
+
+document.querySelector('.close-viewer').onclick = () => {
+    document.getElementById('image-viewer').style.display = 'none';
+};
+
 
 // Enter tugmasini bosganda yuborish
 msgInput.addEventListener("keypress", (e) => {
@@ -536,7 +731,7 @@ window.addEventListener("DOMContentLoaded", () => {
 })
 
 async function loadMyChatList() {
-    const response = await fetch(`http://localhost:3000/api/chat-list/${myId}`)
+    const response = await fetch(`${SERVER_URL}/api/chat-list/${myId}`)
     const contacts = await response.json()
 
     const chatListElement = document.getElementById('chat-list')
@@ -572,6 +767,13 @@ async function loadMyChatList() {
             unreadBadgeHTML = `<span class="unread-badge">${user.unreadCount}</span>`;
         }
 
+        // displayMessage funksiyasiga o'xshash mantiq
+        let displayLastMsg = user.lastMessage || "Yangi chat";
+        // Agar bazadan fileType kelsa (serverdan qaytayotgan user obyektiga bog'liq)
+        if (user.lastMessageType === 'image' || (user.lastMessage && user.lastMessage.includes('/uploads/'))) {
+            displayLastMsg = "📸 Foto";
+        }
+
         chatItem.innerHTML = `
             <div class="avatar">
                 ${displayName.charAt(0).toUpperCase()}
@@ -582,7 +784,7 @@ async function loadMyChatList() {
                     <h4>${displayName}</h4>
                     ${unreadBadgeHTML}
                 </div>
-                <p>${user.lastMessage || "Yangi chat"}</p>
+                <p>${displayLastMsg}</p>
             </div>
         `
 
@@ -638,4 +840,21 @@ function formatLastSeen(date) {
     if (diff < 3600) return Math.floor(diff / 60) + " daqiqa avval";
     if (diff < 86400) return Math.floor(diff / 3600) + " soat avval";
     return Math.floor(diff / 86400) + " kun avval";
+}
+
+
+
+function downloadToView(imgId, url) {
+    const img = document.getElementById(imgId);
+    const container = document.getElementById('container-' + imgId);
+    const btn = document.getElementById('btn-' + imgId);
+
+    // Telegram effekti: Yuklash animatsiyasi (ixtiyoriy)
+    btn.innerHTML = '<div class="spinner"></div>';
+
+    setTimeout(() => {
+        img.classList.remove('hidden');
+        container.classList.remove('blurred');
+        btn.style.display = 'none'; // Tugmani yo'qotamiz
+    }, 800); // 0.8 soniya yuklash simulyatsiyasi
 }

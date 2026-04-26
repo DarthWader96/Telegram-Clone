@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Telegram Clone</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="./style.css">
 </head>
 
 <body>
@@ -48,7 +48,8 @@
                 <button id="back-btn" class="mobile-only">←</button>
                 <div id="chat-avatar" class="avatar"
                     style="width: 40px; height: 40px; margin-right: 10px; background: #2481cc; color: white; display: flex; position: relative;">
-                    <span id="chat-avatar-letter" style="margin: auto;">?</span> <div id="header-status-dot" class="status-dot"></div>
+                    <span id="chat-avatar-letter" style="margin: auto;">?</span>
+                    <div id="header-status-dot" class="status-dot"></div>
                 </div>
                 <div class="chat-user-info">
                     <h3 id="current-chat-name">...</h3>
@@ -66,14 +67,30 @@
                     <span class="time">12:01</span>
                 </div> -->
             </div>
+
+            <div id="image-viewer" class="viewer-modal" style="display: none;">
+                <span class="close-viewer">&times;</span>
+                <img class="viewer-content" id="full-image">
+            </div>
+
             <footer class="input-area">
+                <div id="image-preview-container" style="display: none;">
+                    <div class="preview-box">
+                        <img id="image-preview-img" src="">
+                        <button id="cancel-image-btn">×</button>
+                    </div>
+                </div>
+
+                <input type="file" id="file-input" style="display: none;" accept="image/*">
+                <button id="attach-btn" type="button">📎</button>
                 <input type="text" id="msg-input" placeholder="Xabar yozing...">
                 <button id="send-btn">Yuborish</button>
             </footer>
         </main>
     </div>
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="app.js"></script>
+    <!-- <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script> -->
+    <script src="./socket.io.js"></script>
+    <script src="./app.js"></script>
 </body>
 
 </html>

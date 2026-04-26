@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 const LOCAL_IP = "192.168.0.107";
+=======
+const LOCAL_IP = "192.168.0.107"; 
+>>>>>>> 43e6c3c390422a33a6b33952234ba1472b7b3868
 let SERVER_URL;
 
 // Agar Capacitor (mobil ilova) ichida bo'lsak, har doim IP-ni ishlatamiz

@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "appId": "com.telegram.cloneapp",
+=======
+  "appId": "com.telegram.clone",
+>>>>>>> 43e6c3c390422a33a6b33952234ba1472b7b3868
   "appName": "TelegramClone",
   "webDir": "www",
   "server": {
